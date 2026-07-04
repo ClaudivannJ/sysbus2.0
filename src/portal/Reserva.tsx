@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarCheck, Check, X, Bus } from "lucide-react";
+import { CalendarCheck, Check, X, Bus, WifiOff, CloudUpload } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { EstadoEnquete } from "./fila";
 import FilaAoVivo from "./FilaAoVivo";
 import ChamadaAoVivo, { type PontoChamada } from "./ChamadaAoVivo";
 import AvisoSemViagem from "../components/AvisoSemViagem";
+import { useOnline, cacheSalvar, cacheLer, salvarPendente, lerPendente, limparPendente, type AcaoEnquete } from "../lib/offline";
 
 type Intencao = "IDA_VOLTA" | "SO_IDA" | "SO_VOLTA";
 type PosicaoOnibus = { nome: string; sentido: "IDA" | "VOLTA"; faltamQtd: number; meuPonto: boolean };
@@ -65,6 +66,26 @@ function FaixaSemana({ diasSemana, horarioSaida }: { diasSemana?: number[]; hora
   );
 }
 
+function BannerConexao({ online, pendente }: { online: boolean; pendente: AcaoEnquete | null }) {
+  if (!online) {
+    return (
+      <div className="flex items-start gap-2.5 rounded-xl bg-slate-800 px-3 py-2.5 text-sm text-white">
+        <WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-slate-300" />
+        <p>Você está <strong>offline</strong> — o app continua funcionando. Seu voto será enviado assim que a internet voltar. A posição na fila é definida quando o voto chega ao servidor.</p>
+      </div>
+    );
+  }
+  if (pendente) {
+    return (
+      <div className="flex items-center gap-2.5 rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
+        <CloudUpload className="h-4 w-4 shrink-0 animate-pulse text-amber-600" />
+        <p>Enviando seu voto pendente…</p>
+      </div>
+    );
+  }
+  return null;
+}
+
 function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("pt-BR", { timeZone: "America/Recife", hour: "2-digit", minute: "2-digit" });
 }
@@ -75,17 +96,26 @@ function contagem(ms: number) {
 }
 
 export default function Reserva() {
+  const online = useOnline();
   const [estado, setEstado] = useState<EstadoEnquete | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [acao, setAcao] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [intencao, setIntencao] = useState<Intencao>("IDA_VOLTA");
   const [ponto, setPonto] = useState<string>("");
+  const [pendente, setPendente] = useState<AcaoEnquete | null>(() => lerPendente());
   const [agora, setAgora] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setAgora(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  function aplicarEstado(e: EstadoEnquete) {
+    setEstado(e);
+    setIntencao(intencaoDe(e.minhaReserva));
+    setPonto((p) => p || e.localidadeId || e.localidades[0]?.id || "");
+    cacheSalvar("enquete", e); // p/ mostrar offline
+  }
 
   const carregar = useCallback(async () => {
     const { data, error } = await supabase.functions.invoke("enquete", { body: { action: "estado" } });
@@ -94,13 +124,56 @@ export default function Reserva() {
       setEstado(e);
       setIntencao(intencaoDe(e.minhaReserva));
       setPonto(e.localidadeId ?? e.localidades[0]?.id ?? "");
+      cacheSalvar("enquete", e);
+    } else {
+      // offline / falha → usa a última resposta guardada
+      const cache = cacheLer<EstadoEnquete>("enquete");
+      if (cache && !estado) { setEstado(cache); setIntencao(intencaoDe(cache.minhaReserva)); setPonto(cache.localidadeId ?? cache.localidades[0]?.id ?? ""); }
     }
     setCarregando(false);
-  }, []);
+  }, [estado]);
 
   useEffect(() => {
     carregar();
-  }, [carregar]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // envia à Edge Function; distingue erro de REDE (offline) de erro do servidor (mensagem)
+  async function enviar(a: "confirmar" | "cancelar", inte: string, loc: string) {
+    const { data, error } = await supabase.functions.invoke("enquete", { body: { action: a, intencao: inte, localidadeId: loc } });
+    if (error) {
+      const ctx = (error as { context?: Response }).context;
+      if (!ctx) return { ok: false as const, rede: true as const };
+      let msg = "Não foi possível registrar sua resposta.";
+      try { msg = (await ctx.json()).error ?? msg; } catch { /* */ }
+      return { ok: false as const, msg };
+    }
+    return { ok: true as const, data: data as EstadoEnquete };
+  }
+
+  // registra a ação offline (pendente) e reflete otimista na tela
+  const registrarPendente = useCallback((a: "confirmar" | "cancelar", inte: Intencao, loc: string) => {
+    const obj: AcaoEnquete = { action: a, intencao: inte, localidadeId: loc, em: Date.now() };
+    salvarPendente(obj);
+    setPendente(obj);
+    setEstado((prev) => prev ? {
+      ...prev,
+      minhaReserva: a === "confirmar"
+        ? { status: "CONFIRMADA", vaiIda: inte !== "SO_VOLTA", vaiVolta: inte !== "SO_IDA" }
+        : null,
+    } : prev);
+  }, []);
+
+  // ao reconectar, envia a ação pendente (a posição é definida na CHEGADA ao servidor)
+  useEffect(() => {
+    if (!online) return;
+    const p = lerPendente();
+    if (!p) return;
+    (async () => {
+      const r = await enviar(p.action, p.intencao ?? "IDA_VOLTA", p.localidadeId ?? "");
+      if (r.ok) { limparPendente(); setPendente(null); if (r.data) aplicarEstado(r.data); }
+    })();
+  }, [online]);
 
   // chamada ao vivo (aparece p/ o aluno; refetch p/ pegar novos confirmados / início antecipado)
   const { data: chamada } = useQuery({
@@ -113,25 +186,20 @@ export default function Reserva() {
   });
 
   async function agir(action: "confirmar" | "cancelar") {
-    setAcao(true);
     setErro(null);
-    const { data, error } = await supabase.functions.invoke("enquete", {
-      body: { action, intencao, localidadeId: ponto },
-    });
+    // offline: guarda como pendente e envia ao reconectar (posição = chegada ao servidor)
+    if (!online) { registrarPendente(action, intencao, ponto); return; }
+    setAcao(true);
+    const r = await enviar(action, intencao, ponto);
     setAcao(false);
-    // a Edge Function devolve mensagem de erro no corpo (ex.: enquete encerrada)
-    if (error) {
-      const ctx = (error as { context?: Response }).context;
-      let msg = "Não foi possível registrar sua resposta.";
-      try {
-        if (ctx) msg = (await ctx.json()).error ?? msg;
-      } catch { /* ignore */ }
-      setErro(msg);
-      return;
-    }
-    if (data) {
-      setEstado(data as EstadoEnquete);
-      setIntencao(intencaoDe((data as EstadoEnquete).minhaReserva));
+    if (r.ok) {
+      limparPendente(); setPendente(null);
+      if (r.data) aplicarEstado(r.data);
+    } else if (r.rede) {
+      // caiu a rede no meio → vira pendente
+      registrarPendente(action, intencao, ponto);
+    } else {
+      setErro(r.msg ?? "Não foi possível registrar sua resposta.");
     }
   }
 
@@ -143,6 +211,7 @@ export default function Reserva() {
     return (
       <div className="space-y-3">
         <h1 className="text-lg font-bold text-slate-900">Viagem de hoje</h1>
+        <BannerConexao online={online} pendente={pendente} />
         <FaixaSemana diasSemana={estado?.diasSemana} horarioSaida={estado?.horarioSaida} />
         <AvisoSemViagem
           motivo={estado?.motivo}
@@ -156,6 +225,12 @@ export default function Reserva() {
   }
 
   const confirmada = estado.minhaReserva?.status === "CONFIRMADA";
+  // "aberta" recalculada pelo RELÓGIO (abreEm/fechaEm) → a enquete abre/fecha no horário
+  // configurado mesmo offline e sem depender de refetch.
+  const abreMs = estado.viagem?.abreEm ? new Date(estado.viagem.abreEm).getTime() : null;
+  const fechaMs = estado.viagem?.fechaEm ? new Date(estado.viagem.fechaEm).getTime() : null;
+  const statusOk = estado.viagem?.status ? estado.viagem.status === "ABERTA" : true;
+  const abertaAgora = statusOk && (abreMs === null || agora >= abreMs) && (fechaMs === null || agora < fechaMs);
 
   return (
     <div className="space-y-4">
@@ -168,6 +243,7 @@ export default function Reserva() {
       </div>
 
       <FaixaSemana diasSemana={estado.diasSemana} horarioSaida={estado.horarioSaida} />
+      <BannerConexao online={online} pendente={pendente} />
 
       {erro && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</p>}
 
@@ -182,7 +258,7 @@ export default function Reserva() {
             <Check className="h-5 w-5" /> Presença confirmada · {LABEL_INTENCAO[intencaoDe(estado.minhaReserva)]}
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
-            {estado.aberta ? "Você pode desistir e votar de novo enquanto a enquete estiver aberta." : "A enquete está encerrada. Você ainda pode desistir da vaga."}
+            {abertaAgora ? "Você pode desistir e votar de novo enquanto a enquete estiver aberta." : "A enquete está encerrada. Você ainda pode desistir da vaga."}
           </p>
           <button
             onClick={() => agir("cancelar")}
@@ -192,7 +268,7 @@ export default function Reserva() {
             <X className="h-4 w-4" /> Desistir da vaga
           </button>
         </div>
-      ) : !estado.aberta ? (
+      ) : !abertaAgora ? (
         (() => {
           const abre = estado.viagem?.abreEm ? new Date(estado.viagem.abreEm).getTime() : null;
           const antes = abre !== null && agora < abre;

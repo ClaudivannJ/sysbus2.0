@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
+import { cacheSalvar, cacheLer } from "../lib/offline";
 import type { AlunoParaCartao } from "../lib/carteirinha-render";
 import type { SituacaoAutorizacao } from "../lib/autorizacao";
 
@@ -7,11 +8,15 @@ export interface AlunoPortal extends AlunoParaCartao {
   renovacoes: { status: "PENDENTE" | "APROVADA" | "REJEITADA" }[];
 }
 
-/** Carrega os dados do próprio aluno logado (carteirinha + template da rota + renovações). */
+/** Carrega os dados do próprio aluno logado (carteirinha + template da rota + renovações).
+ *  Guarda a última resposta no cache e a usa OFFLINE (a carteirinha precisa abrir sem internet). */
 export function useAluno(usuarioId: string | undefined) {
   return useQuery({
     queryKey: ["aluno", usuarioId],
     enabled: Boolean(usuarioId),
+    // mostra a carteirinha do cache na hora (e continua exibindo se estiver offline)
+    initialData: () => (usuarioId ? cacheLer<AlunoPortal>("aluno." + usuarioId) ?? undefined : undefined),
+    initialDataUpdatedAt: 0,
     queryFn: async (): Promise<AlunoPortal | null> => {
       const { data, error } = await supabase
         .from("Aluno")
@@ -36,7 +41,9 @@ export function useAluno(usuarioId: string | undefined) {
         (d.destino as Record<string, unknown>).modelo = um((d.destino as Record<string, unknown>).modelo);
       }
       d.renovacoes = Array.isArray(d.renovacoes) ? d.renovacoes : d.renovacoes ? [d.renovacoes] : [];
-      return d as unknown as AlunoPortal;
+      const aluno = d as unknown as AlunoPortal;
+      cacheSalvar("aluno." + usuarioId, aluno); // p/ abrir offline depois
+      return aluno;
     },
   });
 }

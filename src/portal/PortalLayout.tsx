@@ -1,6 +1,7 @@
 import { NavLink, Outlet, Link } from "react-router-dom";
-import { CreditCard, CalendarCheck, FileText, User, LogOut, ScanLine } from "lucide-react";
+import { CreditCard, CalendarCheck, FileText, User, LogOut, ScanLine, WifiOff } from "lucide-react";
 import { useAuth } from "../auth/AuthProvider";
+import { useOnline } from "../lib/offline";
 
 const TABS = [
   { to: "/portal", end: true, icon: CreditCard, label: "Carteirinha" },
@@ -11,6 +12,7 @@ const TABS = [
 
 export default function PortalLayout() {
   const { perfil, sair, pode } = useAuth();
+  const online = useOnline();
 
   return (
     <div className="mx-auto flex min-h-screen max-w-lg flex-col bg-slate-50">
@@ -25,6 +27,11 @@ export default function PortalLayout() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {!online && (
+            <span className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-[11px] font-medium text-amber-300" title="Sem internet — o app continua funcionando">
+              <WifiOff className="h-3.5 w-3.5" /> offline
+            </span>
+          )}
           {pode("ESCANEAR_EMBARQUE") && (
             <Link
               to="/monitor"
