@@ -13,6 +13,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SignJWT } from "https://esm.sh/jose@5";
+import { cpfValido } from "../_shared/validacao.ts";
 
 const cors: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -109,7 +110,7 @@ Deno.serve(async (req) => {
 
   if (nome.length < 3) return json({ error: "Informe o nome completo." }, 400);
   if (!/^\S+@\S+\.\S+$/.test(email)) return json({ error: "E-mail inválido." }, 400);
-  if (cpf.replace(/\D/g, "").length !== 11) return json({ error: "CPF inválido." }, 400);
+  if (!cpfValido(cpf)) return json({ error: "CPF inválido." }, 400);
   if (!destinoId) return json({ error: "Selecione a cidade/rota." }, 400);
 
   // 3) unicidade
