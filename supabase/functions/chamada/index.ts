@@ -41,9 +41,11 @@ Deno.serve(async (req) => {
   if (!userData.user) return json({ error: "não autenticado" }, 401);
 
   const db = createClient(URL_, SERVICE, { auth: { autoRefreshToken: false, persistSession: false } });
-  const { data: caller } = await db.from("Usuario").select("id, papel, secretariaId").eq("authUserId", userData.user.id).maybeSingle();
+  const { data: caller } = await db.from("Usuario").select("id, papel, secretariaId, permissoes").eq("authUserId", userData.user.id).maybeSingle();
   if (!caller) return json({ error: "usuário não encontrado" }, 404);
   const ehGestor = ["ADMIN", "FISCAL", "DONO"].includes(caller.papel);
+  // monitor = gestor OU aluno designado monitor (permissão ESCANEAR_EMBARQUE) — pode operar a chamada
+  const ehMonitor = ehGestor || (caller.papel === "ALUNO" && Array.isArray(caller.permissoes) && caller.permissoes.includes("ESCANEAR_EMBARQUE"));
 
   let b: Record<string, string> = {};
   try { b = await req.json(); } catch { /* */ }
@@ -74,7 +76,9 @@ Deno.serve(async (req) => {
 
   // ---- iniciar (antecipar) — chamada única, guarda o início na Viagem ----
   if (action === "iniciar") {
-    if (!ehGestor) return json({ error: "só o monitor/secretaria inicia a chamada" }, 403);
+    if (!ehMonitor) return json({ error: "só o monitor/secretaria inicia a chamada" }, 403);
+    // escopo de tenant: monitor (gestor ou aluno-monitor) só opera rotas da própria secretaria
+    if (caller.papel !== "DONO" && destino.secretariaId !== caller.secretariaId) return json({ error: "sem permissão nesta rota" }, 403);
     await db.from("Viagem").update({ chamadaIniciadaEm: new Date().toISOString() }).eq("id", viagem.id);
     return json({ ok: true });
   }
