@@ -64,21 +64,18 @@ Deno.serve(async (req) => {
   if (!destino) return json({ error: "rota não encontrada" }, 404);
   if (ehGestor && caller.papel !== "DONO" && destino.secretariaId !== caller.secretariaId) return json({ error: "sem permissão nesta rota" }, 403);
 
-  const { data: viagem } = await db.from("Viagem").select("id, horario, fechaEm")
+  const { data: viagem } = await db.from("Viagem").select("id, horario, fechaEm, chamadaIniciadaEm")
     .eq("destinoId", destinoId).gte("data", inicioDeHoje().toISOString()).lt("data", amanha().toISOString()).limit(1).maybeSingle();
   if (!viagem) return json({ viagem: null, pontos: [], intervaloSegundos: 10 });
 
-  // início padrão da chamada = fechamento da enquete, ou o horário da viagem
+  // início da chamada = quando o monitor iniciou (se iniciou), senão o fechamento da enquete / horário
   const inicioPadrao = viagem.fechaEm ?? horaParaHoje(viagem.horario)?.toISOString() ?? inicioDeHoje().toISOString();
+  const chamadaEmISO = viagem.chamadaIniciadaEm ?? inicioPadrao;
 
-  // ---- iniciar (antecipar) ----
+  // ---- iniciar (antecipar) — chamada única, guarda o início na Viagem ----
   if (action === "iniciar") {
     if (!ehGestor) return json({ error: "só o monitor/secretaria inicia a chamada" }, 403);
-    const localidadeId = String(b.localidadeId ?? "");
-    if (!localidadeId) return json({ error: "localidadeId ausente" }, 400);
-    const { data: existe } = await db.from("ChamadaPonto").select("id").eq("viagemId", viagem.id).eq("localidadeId", localidadeId).maybeSingle();
-    if (existe) await db.from("ChamadaPonto").update({ iniciadaEm: new Date().toISOString(), iniciadaPorId: caller.id }).eq("id", existe.id);
-    else await db.from("ChamadaPonto").insert({ id: crypto.randomUUID(), viagemId: viagem.id, localidadeId, chamadaEm: inicioPadrao, iniciadaEm: new Date().toISOString(), iniciadaPorId: caller.id });
+    await db.from("Viagem").update({ chamadaIniciadaEm: new Date().toISOString() }).eq("id", viagem.id);
     return json({ ok: true });
   }
 
@@ -101,29 +98,19 @@ Deno.serve(async (req) => {
   const onibusInputs = onibus.map((o: DB) => ({ id: o.id, nome: o.nome, capacidade: o.capacidade, prioridades: Object.fromEntries((o.localidades ?? []).map((l: DB) => [l.localidadeId, l.prioridade])) }));
   const aloc = alocarViagem(reservaInputs, onibusInputs);
 
-  // ChamadaPonto já iniciadas (override do horário)
-  const { data: cps } = await db.from("ChamadaPonto").select("localidadeId, iniciadaEm").eq("viagemId", viagem.id);
-  const iniciada = new Map((cps ?? []).filter((c: DB) => c.iniciadaEm).map((c: DB) => [c.localidadeId, c.iniciadaEm]));
-
-  // agrupa CONFIRMADOS por ponto, ordenado por ônibus+posição
-  const grupos = new Map<string, { ponto: string; itens: DB[] }>();
-  for (const a of aloc.alocacoes.filter((x) => x.status === "CONFIRMADA")) {
+  // Chamada ÚNICA: os CONFIRMADOS na ordem de voto (FIFO). Não é por ponto de embarque —
+  // a vaga/chamada é de quem votou primeiro. `alocacoes` já vem na ordem de voto.
+  const listaConfirmados = aloc.alocacoes.filter((x) => x.status === "CONFIRMADA").map((a) => {
     const r: DB = rById.get(a.reservaId);
-    const key = r.aluno?.localidadeId ?? "__sem__";
-    let g = grupos.get(key);
-    if (!g) { g = { ponto: r.aluno?.localidade?.nome ?? "Sem ponto", itens: [] }; grupos.set(key, g); }
-    g.itens.push({ reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null, onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null, posicao: a.posicao });
-  }
-  let pontos = [...grupos.entries()].map(([localidadeId, g]) => ({
-    localidadeId, ponto: g.ponto,
-    chamadaEmISO: iniciada.get(localidadeId) ?? inicioPadrao,
-    ordem: g.itens.sort((a, b) => (a.onibusNome ?? "").localeCompare(b.onibusNome ?? "") || (a.posicao ?? 0) - (b.posicao ?? 0)),
-  })).sort((a, b) => a.ponto.localeCompare(b.ponto));
-
-  // ALUNO vê só a chamada do SEU ponto (o que ele votou); gestor/monitor vê todos.
-  if (meuAlunoId && !ehGestor && minhaLocalidade) {
-    pontos = pontos.filter((p) => p.localidadeId === minhaLocalidade);
-  }
+    return {
+      reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null,
+      onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null, posicao: a.posicao,
+    };
+  });
+  // mantém o formato `pontos` (1 grupo) p/ compatibilidade com o componente atual
+  const pontos = listaConfirmados.length
+    ? [{ localidadeId: "GERAL", ponto: "Chamada (ordem de voto)", chamadaEmISO, ordem: listaConfirmados }]
+    : [];
 
   const meuReservaId = meuAlunoId ? (reservas.find((r: DB) => r.alunoId === meuAlunoId)?.id ?? null) : null;
 

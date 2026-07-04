@@ -23,6 +23,14 @@ function relogio(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
+// contagem longa até o início da chamada: horas → minutos → segundos (nunca "1000s")
+function faltaLongo(ms: number) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), seg = s % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}min`;
+  if (m > 0) return `${m}min ${String(seg).padStart(2, "0")}s`;
+  return `${seg}s`;
+}
 function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("pt-BR", { timeZone: "America/Recife", hour: "2-digit", minute: "2-digit" });
 }
@@ -45,7 +53,7 @@ function PontoView({ ponto, intervaloMs, intervaloSegundos, agora, meuReservaId 
   );
   if (!inicio) return <Card>{cabecalho}<p className="px-4 py-3 text-xs text-slate-400">Chamada não programada.</p></Card>;
   if (agora < inicio) return (
-    <Card>{cabecalho}<p className="px-4 py-3 text-sm text-slate-500">Começa às <b>{hhmm(ponto.chamadaEmISO!)}</b> — faltam <b>{relogio(inicio - agora)}</b></p></Card>
+    <Card>{cabecalho}<p className="px-4 py-3 text-sm text-slate-500">Começa às <b>{hhmm(ponto.chamadaEmISO!)}</b> — faltam <b>{faltaLongo(inicio - agora)}</b></p></Card>
   );
   const idx = Math.floor((agora - inicio) / intervaloMs);
   if (idx >= total) return <Card>{cabecalho}<p className="px-4 py-3 text-sm text-slate-600">Chamada encerrada — {total} chamado(s).</p></Card>;
@@ -103,7 +111,7 @@ export default function ChamadaAoVivo({ intervaloSegundos, pontos, meuReservaId 
     return (
       <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
         <Megaphone className="h-5 w-5 text-slate-300" />
-        Nenhum confirmado ainda — a chamada aparece por ponto de embarque.
+        Nenhum confirmado ainda — a chamada aparece quando houver vagas confirmadas.
       </div>
     );
   }

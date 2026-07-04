@@ -66,9 +66,7 @@ export default function MonitorScreen() {
     if (!chamada?.pontos.length) return;
     if (!window.confirm("Iniciar a chamada agora (antes do horário)?")) return;
     setIniciando(true);
-    for (const p of chamada.pontos) {
-      await supabase.functions.invoke("chamada", { body: { action: "iniciar", destinoId, localidadeId: p.localidadeId } });
-    }
+    await supabase.functions.invoke("chamada", { body: { action: "iniciar", destinoId } });
     setIniciando(false);
     refetchChamada();
   }
