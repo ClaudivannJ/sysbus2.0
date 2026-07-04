@@ -1,5 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { CreditCard, CalendarCheck, FileText, User, LogOut } from "lucide-react";
+import { NavLink, Outlet, Link } from "react-router-dom";
+import { CreditCard, CalendarCheck, FileText, User, LogOut, ScanLine } from "lucide-react";
 import { useAuth } from "../auth/AuthProvider";
 
 const TABS = [
@@ -10,7 +10,7 @@ const TABS = [
 ];
 
 export default function PortalLayout() {
-  const { perfil, sair } = useAuth();
+  const { perfil, sair, pode } = useAuth();
 
   return (
     <div className="mx-auto flex min-h-screen max-w-lg flex-col bg-slate-50">
@@ -24,13 +24,24 @@ export default function PortalLayout() {
             <p className="text-[11px] text-slate-300">{perfil?.nome}</p>
           </div>
         </div>
-        <button
-          onClick={() => sair()}
-          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-300 hover:bg-white/10 hover:text-white"
-        >
-          <LogOut className="h-4 w-4" />
-          Sair
-        </button>
+        <div className="flex items-center gap-1">
+          {pode("ESCANEAR_EMBARQUE") && (
+            <Link
+              to="/monitor"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-sm text-white hover:bg-white/20"
+            >
+              <ScanLine className="h-4 w-4" />
+              Monitor
+            </Link>
+          )}
+          <button
+            onClick={() => sair()}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-300 hover:bg-white/10 hover:text-white"
+          >
+            <LogOut className="h-4 w-4" />
+            Sair
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 p-4 pb-24">

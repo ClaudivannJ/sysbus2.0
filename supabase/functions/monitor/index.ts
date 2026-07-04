@@ -55,8 +55,14 @@ Deno.serve(async (req) => {
   if (!userData.user) return json({ error: "não autenticado" }, 401);
 
   const db = createClient(URL_, SERVICE, { auth: { autoRefreshToken: false, persistSession: false } });
-  const { data: caller } = await db.from("Usuario").select("id, papel, secretariaId").eq("authUserId", userData.user.id).maybeSingle();
-  if (!caller || !["FISCAL", "ADMIN", "DONO"].includes(caller.papel)) return json({ error: "sem permissão" }, 403);
+  const { data: caller } = await db.from("Usuario").select("id, papel, secretariaId, permissoes").eq("authUserId", userData.user.id).maybeSingle();
+  // monitor = staff (FISCAL/ADMIN/DONO) OU um ALUNO que a secretaria designou como monitor
+  // (permissão ESCANEAR_EMBARQUE) — assim o mesmo aluno atua como monitor sem 2ª conta.
+  const ehMonitor = Boolean(caller) && (
+    ["FISCAL", "ADMIN", "DONO"].includes(caller!.papel) ||
+    (caller!.papel === "ALUNO" && Array.isArray(caller!.permissoes) && caller!.permissoes.includes("ESCANEAR_EMBARQUE"))
+  );
+  if (!ehMonitor) return json({ error: "sem permissão" }, 403);
 
   let b: Record<string, string> = {};
   try { b = await req.json(); } catch { /* */ }

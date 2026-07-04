@@ -48,11 +48,12 @@ function Home() {
   return <Navigate to={HOME_POR_PAPEL[perfil.papel]} replace />;
 }
 
-function Protegido({ papeis, children }: { papeis: Papel[]; children: ReactNode }) {
-  const { perfil, carregando } = useAuth();
+function Protegido({ papeis, permissao, children }: { papeis: Papel[]; permissao?: string; children: ReactNode }) {
+  const { perfil, carregando, pode } = useAuth();
   if (carregando) return <Splash />;
   if (!perfil) return <Navigate to="/login" replace />;
-  if (!papeis.includes(perfil.papel)) return <Navigate to="/" replace />;
+  // libera por papel OU por permissão específica (ex.: aluno-monitor com ESCANEAR_EMBARQUE)
+  if (!papeis.includes(perfil.papel) && !(permissao && pode(permissao))) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -95,7 +96,7 @@ export default function App() {
       <Route
         path="/monitor/*"
         element={
-          <Protegido papeis={["FISCAL", "ADMIN", "DONO"]}>
+          <Protegido papeis={["FISCAL", "ADMIN", "DONO"]} permissao="ESCANEAR_EMBARQUE">
             <MonitorScreen />
           </Protegido>
         }

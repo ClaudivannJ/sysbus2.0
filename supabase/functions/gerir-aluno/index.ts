@@ -120,6 +120,18 @@ Deno.serve(async (req) => {
     return json({ ok: true, validade: validade.toISOString() });
   }
 
+  if (action === "definir-monitor") {
+    if (!aluno.usuarioId) return json({ error: "aluno sem conta de acesso" }, 409);
+    const ativo = String(b.ativo) === "true";
+    const { data: u } = await db.from("Usuario").select("permissoes").eq("id", aluno.usuarioId).maybeSingle();
+    const set = new Set<string>(Array.isArray(u?.permissoes) ? u.permissoes : []);
+    if (ativo) { set.add("ESCANEAR_EMBARQUE"); set.add("VER_EMBARQUE"); }
+    else { set.delete("ESCANEAR_EMBARQUE"); set.delete("VER_EMBARQUE"); }
+    await db.from("Usuario").update({ permissoes: [...set] }).eq("id", aluno.usuarioId);
+    await audit(ativo ? "ALUNO_MONITOR_ATIVADO" : "ALUNO_MONITOR_DESATIVADO", `${ativo ? "Definiu" : "Removeu"} ${aluno.nome} como monitor`);
+    return json({ ok: true });
+  }
+
   if (action === "desligar") {
     await db.from("Aluno").update({ status: "DESLIGADO" }).eq("id", alunoId);
     if (authUserId) await db.auth.admin.updateUserById(authUserId, { ban_duration: "876000h" }); // ~100 anos

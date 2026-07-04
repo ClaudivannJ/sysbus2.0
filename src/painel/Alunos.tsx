@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users, UserPlus, Search, Check, Printer, X, ShieldCheck } from "lucide-react";
+import { Users, UserPlus, Search, Check, Printer, X, ShieldCheck, ScanLine } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { montarCarteirinha, type AlunoParaCartao } from "../lib/carteirinha-render";
 import { formatarValidade } from "../lib/carteirinha";
@@ -130,7 +130,7 @@ const one = (x: unknown) => (Array.isArray(x) ? (x[0] ?? null) : (x ?? null));
 interface AlunoDados {
   id: string; nome: string; cpf: string; curso: string | null; faculdade: string | null;
   matricula: string | null; destinoId: string | null; dataNascimento: string | null;
-  fotoUrl: string | null; status: string; usuario: { email: string } | null;
+  fotoUrl: string | null; status: string; usuario: { email: string; permissoes: string[] | null } | null;
 }
 
 function AlunoDetalhe({ aluno, aoFechar, aoMudar }: { aluno: AlunoRow; aoFechar: () => void; aoMudar: () => void }) {
@@ -147,7 +147,7 @@ function AlunoDetalhe({ aluno, aoFechar, aoMudar }: { aluno: AlunoRow; aoFechar:
     queryKey: ["aluno-full", aluno.id],
     queryFn: async (): Promise<AlunoDados | null> => {
       const { data } = await supabase.from("Aluno")
-        .select("id,nome,cpf,curso,faculdade,matricula,destinoId,dataNascimento,fotoUrl,status,usuario:Usuario(email)")
+        .select("id,nome,cpf,curso,faculdade,matricula,destinoId,dataNascimento,fotoUrl,status,usuario:Usuario(email,permissoes)")
         .eq("id", aluno.id).maybeSingle();
       if (!data) return null;
       const d = data as Record<string, unknown>;
@@ -176,6 +176,7 @@ function AlunoDetalhe({ aluno, aoFechar, aoMudar }: { aluno: AlunoRow; aoFechar:
   const desligado = (dados?.status ?? aluno.status) === "DESLIGADO";
   const validadeMs = cartao?.dados.validade ? new Date(cartao.dados.validade).getTime() : null;
   const jaAutorizado = validadeMs !== null && validadeMs >= Date.now();
+  const ehMonitor = (dados?.usuario?.permissoes ?? []).includes("ESCANEAR_EMBARQUE");
 
   async function acao(action: string, body: Record<string, unknown> = {}) {
     setOcupado(true);
@@ -274,6 +275,28 @@ function AlunoDetalhe({ aluno, aoFechar, aoMudar }: { aluno: AlunoRow; aoFechar:
           )}
           {cartao && jaAutorizado && (
             <CarteirinhaImpressao campos={cartao.campos} dados={cartao.dados} arteUrl={cartao.arteUrl} arteVersoUrl={cartao.arteVersoUrl} larguraBase={cartao.larguraBase} alturaBase={cartao.alturaBase} />
+          )}
+
+          {/* Monitor: um aluno pode também atuar como monitor (escanear embarque) na mesma conta */}
+          {dados && !desligado && (
+            <div className="mt-4 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+              <div className="flex items-center gap-2">
+                <ScanLine className="h-4 w-4 text-brand-600" />
+                <div className="leading-tight">
+                  <p className="text-sm font-medium text-slate-700">Monitor de embarque</p>
+                  <p className="text-[11px] text-slate-500">Deixa este aluno escanear o embarque no app, na mesma conta.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => acao("definir-monitor", { ativo: !ehMonitor })}
+                disabled={ocupado}
+                role="switch"
+                aria-checked={ehMonitor}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${ehMonitor ? "bg-brand-700" : "bg-slate-300"}`}
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${ehMonitor ? "translate-x-5" : "translate-x-0.5"}`} />
+              </button>
+            </div>
           )}
 
           <div className="mt-5 space-y-2 border-t border-slate-100 pt-4">
