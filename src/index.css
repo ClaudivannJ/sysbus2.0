@@ -42,15 +42,12 @@ body {
   .carteirinha-print {
     display: block;
   }
+  /* frente e verso, em tamanho de cartão, cabem juntas em UMA página — não força quebra */
   .carteirinha-print .face-print {
-    break-after: page;
-    page-break-after: always;
-  }
-  .carteirinha-print .face-print:last-child {
-    break-after: auto;
-    page-break-after: auto;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
   @page {
-    margin: 12mm;
+    margin: 10mm;
   }
 }
