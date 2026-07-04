@@ -11,6 +11,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SignJWT } from "https://esm.sh/jose@5";
+import { lerArquivoValidado } from "../_shared/upload.ts";
 
 const cors: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -32,9 +33,6 @@ const BUCKET_PRIV = "documentos";
 const PREFIXO_PRIV = "priv:";
 
 const EXT_OK = new Set(["png", "jpg", "jpeg", "webp", "pdf"]);
-const MIME: Record<string, string> = {
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", pdf: "application/pdf",
-};
 
 // Semestre atual "2026.1"/"2026.2" (espelha semestreAtual()).
 function semestreAtual(): string {
@@ -44,13 +42,12 @@ function semestreAtual(): string {
 
 // deno-lint-ignore no-explicit-any
 async function upload(db: any, file: File, prefixo: string, privado: boolean): Promise<string> {
-  const ext = (file.name.split(".").pop() ?? "bin").toLowerCase();
-  if (!EXT_OK.has(ext)) throw new Error(`Tipo não permitido: .${ext}`);
-  const nome = `${prefixo}${crypto.randomUUID()}.${ext}`;
+  const val = await lerArquivoValidado(file, EXT_OK); // tamanho + extensão + magic bytes
+  if (!val.ok) throw new Error(val.erro);
+  const nome = `${prefixo}${crypto.randomUUID()}.${val.ext}`;
   const bucket = privado ? BUCKET_PRIV : BUCKET_PUB;
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const { error } = await db.storage.from(bucket).upload(nome, bytes, {
-    contentType: MIME[ext] ?? "application/octet-stream",
+  const { error } = await db.storage.from(bucket).upload(nome, val.bytes, {
+    contentType: val.contentType,
     upsert: true,
   });
   if (error) throw new Error(`Storage: ${error.message}`);

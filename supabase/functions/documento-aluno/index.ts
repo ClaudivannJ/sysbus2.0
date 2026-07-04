@@ -6,6 +6,7 @@
 // Deploy: npx supabase functions deploy documento-aluno --use-api --project-ref mtumvzzvwankdppebhle
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { lerArquivoValidado } from "../_shared/upload.ts";
 
 const cors: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -22,7 +23,6 @@ const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BUCKET_PRIV = "documentos";
 const PREFIXO_PRIV = "priv:";
 const EXT_OK = new Set(["png", "jpg", "jpeg", "webp", "pdf"]);
-const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", pdf: "application/pdf" };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -61,13 +61,13 @@ Deno.serve(async (req) => {
   const tipoId = String(form.get("tipoId") ?? "").trim();
   const arquivo = form.get("arquivo");
   if (!tipoId) return json({ error: "tipoId ausente" }, 400);
-  if (!(arquivo instanceof File) || arquivo.size === 0) return json({ error: "Anexe um arquivo." }, 400);
+  if (!(arquivo instanceof File)) return json({ error: "Anexe um arquivo." }, 400);
 
-  const ext = (arquivo.name.split(".").pop() ?? "bin").toLowerCase();
-  if (!EXT_OK.has(ext)) return json({ error: `Tipo não permitido: .${ext}` }, 400);
-  const nome = `doc-${crypto.randomUUID()}.${ext}`;
-  const { error: upErr } = await db.storage.from(BUCKET_PRIV).upload(nome, new Uint8Array(await arquivo.arrayBuffer()), {
-    contentType: MIME[ext] ?? "application/octet-stream", upsert: true,
+  const val = await lerArquivoValidado(arquivo, EXT_OK);
+  if (!val.ok) return json({ error: val.erro }, val.status);
+  const nome = `doc-${crypto.randomUUID()}.${val.ext}`;
+  const { error: upErr } = await db.storage.from(BUCKET_PRIV).upload(nome, val.bytes, {
+    contentType: val.contentType, upsert: true,
   });
   if (upErr) return json({ error: "falha no upload" }, 500);
   const arquivoUrl = `${PREFIXO_PRIV}${nome}`;

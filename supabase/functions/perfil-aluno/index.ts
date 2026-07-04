@@ -6,6 +6,7 @@
 // Deploy: npx supabase functions deploy perfil-aluno --use-api --project-ref mtumvzzvwankdppebhle
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { lerArquivoValidado } from "../_shared/upload.ts";
 
 const cors: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -21,7 +22,6 @@ const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BUCKET_PUB = "midia";
 const EXT_OK = new Set(["png", "jpg", "jpeg", "webp"]);
-const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -54,11 +54,11 @@ Deno.serve(async (req) => {
   let fotoUrl: string | undefined;
   const foto = form.get("foto");
   if (foto instanceof File && foto.size > 0) {
-    const ext = (foto.name.split(".").pop() ?? "bin").toLowerCase();
-    if (!EXT_OK.has(ext)) return json({ error: `Foto: tipo não permitido (.${ext})` }, 400);
-    const nomeArq = `foto-${crypto.randomUUID()}.${ext}`;
-    const { error: upErr } = await db.storage.from(BUCKET_PUB).upload(nomeArq, new Uint8Array(await foto.arrayBuffer()), {
-      contentType: MIME[ext], upsert: true,
+    const val = await lerArquivoValidado(foto, EXT_OK);
+    if (!val.ok) return json({ error: `Foto: ${val.erro}` }, val.status);
+    const nomeArq = `foto-${crypto.randomUUID()}.${val.ext}`;
+    const { error: upErr } = await db.storage.from(BUCKET_PUB).upload(nomeArq, val.bytes, {
+      contentType: val.contentType, upsert: true,
     });
     if (upErr) return json({ error: "Falha no upload da foto." }, 500);
     fotoUrl = db.storage.from(BUCKET_PUB).getPublicUrl(nomeArq).data.publicUrl;
