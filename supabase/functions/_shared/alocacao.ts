@@ -1,20 +1,15 @@
 /**
- * Engine de alocação de vagas do transporte universitário.
+ * Engine de alocação de vagas do transporte universitário — FIFO por ordem de voto.
  *
- * Regras (rota Arcoverde, como exemplo real):
- *  - Cada ônibus tem capacidade e atende um conjunto de localidades com uma
- *    prioridade. prioridade 1 = ônibus "dono" daquela localidade; 2+ = transbordo.
- *      ex.: Ônibus Itaiba -> { Itaiba: 1 }
- *           Ônibus NEG    -> { Negras: 1, Estrada: 1, Giral: 1, Itaiba: 2 }
- *  - A fila é ordenada por `ordem` (ordem de entrada / chamada das 17h).
- *  - Cada aluno é alocado no ônibus de MAIOR prioridade para a sua localidade
- *    que ainda tenha vaga. Se nenhum candidato tem vaga -> lista de espera.
- *  - Itaiba lota -> excedente transborda pro NEG (prioridade 2) se houver vaga.
- *  - Cancelamento: basta marcar a reserva como CANCELADA e re-alocar; a cascata
- *    (próximo da fila sobe) acontece naturalmente.
- *  - Escolha de ônibus: quando a localidade do aluno tem mais de um ônibus com
- *    vaga, ele PODE escolher (campo `onibusPreferidoId`). `podeEscolher` lista
- *    as alternativas para a UI oferecer.
+ * Regra (a justa, "melhor que a enquete do WhatsApp"):
+ *  - A vaga é de quem vota primeiro. Ordena TODAS as reservas por `ordem` (seq atômico
+ *    da votação) e preenche os assentos dos ônibus ATIVOS na sequência.
+ *  - Capacidade total = soma da capacidade dos ônibus ativos. Os primeiros N (N = capacidade
+ *    total) ficam CONFIRMADOS; o restante fica em ESPERA (não viaja, só entra se alguém desistir).
+ *  - O ponto de embarque NÃO decide a vaga (antes decidia, e isso era injusto: quem não era
+ *    da localidade "dona" do ônibus ficava de fora mesmo votando antes). O ponto é só onde a
+ *    pessoa embarca; a chamada é pela ordem dos confirmados.
+ *  - Cancelamento: marca a reserva como CANCELADA e re-aloca; o próximo da espera sobe.
  *
  * Função pura, sem dependência de banco — fácil de testar e auditar.
  */
@@ -60,13 +55,6 @@ export interface ResultadoAlocacao {
   espera: AlocacaoReserva[];
 }
 
-/** Candidatos de ônibus para uma localidade, ordenados por prioridade asc. */
-function candidatosPara(localidadeId: string, onibus: OnibusInput[]): OnibusInput[] {
-  return onibus
-    .filter((o) => localidadeId in o.prioridades)
-    .sort((a, b) => a.prioridades[localidadeId] - b.prioridades[localidadeId]);
-}
-
 export function alocarViagem(
   reservas: ReservaInput[],
   onibus: OnibusInput[],
@@ -75,39 +63,29 @@ export function alocarViagem(
     .filter((r) => r.status !== "CANCELADA")
     .sort((a, b) => a.ordem - b.ordem);
 
-  const ocupacao = new Map<string, number>();
-  for (const o of onibus) ocupacao.set(o.id, 0);
+  // Frota em ordem estável (por nome). Preenche assentos na ordem de voto, sem olhar o ponto.
+  const frota = [...onibus].sort((a, b) => a.nome.localeCompare(b.nome));
+  const ocupacao = new Map<string, number>(frota.map((o) => [o.id, 0]));
 
   const alocacoes: AlocacaoReserva[] = [];
+  let ponteiro = 0; // índice do ônibus atual a preencher
 
   for (const r of ativos) {
-    const candidatos = candidatosPara(r.localidadeId, onibus);
-    const comVaga = candidatos.filter((o) => ocupacao.get(o.id)! < o.capacidade);
+    // avança para o próximo ônibus com vaga
+    while (ponteiro < frota.length && ocupacao.get(frota[ponteiro].id)! >= frota[ponteiro].capacidade) ponteiro++;
+    const bus = ponteiro < frota.length ? frota[ponteiro] : null;
 
-    // Respeita a preferência do aluno, se o ônibus preferido ainda tem vaga.
-    let escolhido = comVaga.find((o) => o.id === r.onibusPreferidoId) ?? comVaga[0];
-
-    if (escolhido) {
-      const novaOcupacao = ocupacao.get(escolhido.id)! + 1;
-      ocupacao.set(escolhido.id, novaOcupacao);
+    if (bus) {
+      const posicao = ocupacao.get(bus.id)! + 1;
+      ocupacao.set(bus.id, posicao);
       alocacoes.push({
-        reservaId: r.id,
-        alunoId: r.alunoId,
-        ordem: r.ordem,
-        onibusId: escolhido.id,
-        posicao: novaOcupacao,
-        podeEscolher: comVaga.filter((o) => o.id !== escolhido!.id).map((o) => o.id),
-        status: "CONFIRMADA",
+        reservaId: r.id, alunoId: r.alunoId, ordem: r.ordem,
+        onibusId: bus.id, posicao, podeEscolher: [], status: "CONFIRMADA",
       });
     } else {
       alocacoes.push({
-        reservaId: r.id,
-        alunoId: r.alunoId,
-        ordem: r.ordem,
-        onibusId: null,
-        posicao: null,
-        podeEscolher: [],
-        status: "ESPERA",
+        reservaId: r.id, alunoId: r.alunoId, ordem: r.ordem,
+        onibusId: null, posicao: null, podeEscolher: [], status: "ESPERA",
       });
     }
   }
