@@ -127,9 +127,10 @@ Deno.serve(async (req) => {
 
   const meuReservaId = meuAlunoId ? (reservas.find((r: DB) => r.alunoId === meuAlunoId)?.id ?? null) : null;
 
-  // posição do ônibus no itinerário (onde está + quantos faltam) — visível ao aluno
+  // posição do ônibus no itinerário (onde está + quantos faltam) — visível ao aluno, se o módulo estiver ativo
   let posicaoOnibus: { nome: string; sentido: string; faltamQtd: number; meuPonto: boolean } | null = null;
-  const { data: vp } = await db.from("Viagem").select("pontoAtualId").eq("id", viagem.id).maybeSingle();
+  const { data: cfgItin } = await db.from("ConfiguracaoPlataforma").select("itinerarioAtivo").eq("id", "GLOBAL").maybeSingle();
+  const { data: vp } = cfgItin?.itinerarioAtivo ? await db.from("Viagem").select("pontoAtualId").eq("id", viagem.id).maybeSingle() : { data: null };
   if (vp?.pontoAtualId) {
     const { data: pr } = await db.from("PontoRota").select("nome, sentido, localidadeId, faculdade").eq("id", vp.pontoAtualId).maybeSingle();
     if (pr) {

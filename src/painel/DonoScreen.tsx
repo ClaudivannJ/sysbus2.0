@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Plus, Check, LogOut, UserCog, Nfc } from "lucide-react";
+import { Building2, Plus, Check, LogOut, UserCog, Nfc, MapPin } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 
@@ -75,15 +75,16 @@ function FlagsPlataforma() {
   const { data: cfg } = useQuery({
     queryKey: ["config-plataforma"],
     queryFn: async () => {
-      const { data } = await supabase.from("ConfiguracaoPlataforma").select("nfcAtivo").eq("id", "GLOBAL").maybeSingle();
-      return (data as { nfcAtivo: boolean } | null) ?? { nfcAtivo: false };
+      const { data } = await supabase.from("ConfiguracaoPlataforma").select("nfcAtivo, itinerarioAtivo").eq("id", "GLOBAL").maybeSingle();
+      return (data as { nfcAtivo: boolean; itinerarioAtivo: boolean } | null) ?? { nfcAtivo: false, itinerarioAtivo: false };
     },
   });
   const nfcAtivo = Boolean(cfg?.nfcAtivo);
+  const itinerarioAtivo = Boolean(cfg?.itinerarioAtivo);
 
-  async function alternarNfc() {
+  async function alternar(campo: "nfcAtivo" | "itinerarioAtivo", valor: boolean) {
     setSalvando(true);
-    await supabase.from("ConfiguracaoPlataforma").update({ nfcAtivo: !nfcAtivo, atualizadoEm: new Date().toISOString() }).eq("id", "GLOBAL");
+    await supabase.from("ConfiguracaoPlataforma").update({ [campo]: valor, atualizadoEm: new Date().toISOString() }).eq("id", "GLOBAL");
     await qc.invalidateQueries({ queryKey: ["config-plataforma"] });
     setSalvando(false);
   }
@@ -99,17 +100,31 @@ function FlagsPlataforma() {
           <p className="text-sm font-medium text-slate-700">Embarque por aproximação (NFC)</p>
           <p className="text-xs text-slate-500">Quando ligado, o monitor pode registrar o embarque encostando a carteirinha/tag NFC (Chrome no Android). O leitor de QR continua sempre disponível.</p>
         </div>
-        <button
-          onClick={alternarNfc}
-          disabled={salvando}
-          role="switch"
-          aria-checked={nfcAtivo}
-          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${nfcAtivo ? "bg-brand-700" : "bg-slate-300"}`}
-        >
-          <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${nfcAtivo ? "translate-x-5" : "translate-x-0.5"}`} />
-        </button>
+        <Switch on={nfcAtivo} disabled={salvando} onToggle={() => alternar("nfcAtivo", !nfcAtivo)} />
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-4 border-t border-slate-100 pt-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-slate-700"><MapPin className="h-3.5 w-3.5 text-slate-400" /> Itinerário e pontos (operação da viagem)</p>
+          <p className="text-xs text-slate-500">Configuração de pontos de embarque/retorno, ponto atual do ônibus e "quem falta". Em revisão — mantenha desligado por enquanto.</p>
+        </div>
+        <Switch on={itinerarioAtivo} disabled={salvando} onToggle={() => alternar("itinerarioAtivo", !itinerarioAtivo)} />
       </div>
     </div>
+  );
+}
+
+function Switch({ on, disabled, onToggle }: { on: boolean; disabled?: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={disabled}
+      role="switch"
+      aria-checked={on}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${on ? "bg-brand-700" : "bg-slate-300"}`}
+    >
+      <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${on ? "translate-x-5" : "translate-x-0.5"}`} />
+    </button>
   );
 }
 

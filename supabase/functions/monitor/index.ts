@@ -178,8 +178,9 @@ Deno.serve(async (req) => {
   const podeVer = caller.papel === "DONO" || destino.secretariaId === caller.secretariaId;
   if (!podeVer) return json({ error: "sem permissão nesta rota" }, 403);
 
-  const { data: cfg } = await db.from("ConfiguracaoPlataforma").select("nfcAtivo").eq("id", "GLOBAL").maybeSingle();
+  const { data: cfg } = await db.from("ConfiguracaoPlataforma").select("nfcAtivo, itinerarioAtivo").eq("id", "GLOBAL").maybeSingle();
   const nfcAtivo = Boolean(cfg?.nfcAtivo);
+  const itinerarioAtivo = Boolean(cfg?.itinerarioAtivo);
 
   const { data: viagem } = await db.from("Viagem").select("id, horario, pontoAtualId, sentidoAtual")
     .eq("destinoId", destinoId).gte("data", inicioDeHoje().toISOString()).lt("data", amanha().toISOString())
@@ -193,9 +194,10 @@ Deno.serve(async (req) => {
        embarques:Embarque ( sentido ) )`,
   ).eq("id", viagem.id).maybeSingle();
 
-  // itinerário configurado (pontos por sentido) + "quem falta" em cada ponto
-  const { data: itinRaw } = await db.from("PontoRota")
-    .select("id, sentido, ordem, nome, localidadeId, faculdade").eq("destinoId", destinoId).order("ordem");
+  // itinerário configurado (pontos por sentido) + "quem falta" em cada ponto — só se o módulo estiver ativo
+  const { data: itinRaw } = itinerarioAtivo
+    ? await db.from("PontoRota").select("id, sentido, ordem, nome, localidadeId, faculdade").eq("destinoId", destinoId).order("ordem")
+    : { data: [] as DB[] };
   const reservasConf = (v.reservas ?? []).filter((r: DB) => r.status === "CONFIRMADA");
   const temEmb = (r: DB, s: string) => (r.embarques ?? []).some((e: DB) => e.sentido === s);
   const itinerario = (itinRaw ?? []).map((p: DB) => {

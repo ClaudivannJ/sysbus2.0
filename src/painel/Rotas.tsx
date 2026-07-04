@@ -129,9 +129,22 @@ function RotaCard({ rota }: { rota: Rota }) {
         {salvo ? <><Check className="h-4 w-4" /> Salvo</> : salvando ? "Salvando…" : "Salvar"}
       </button>
 
-      <Itinerario destinoId={rota.id} secretariaId={rota.secretariaId} exibirQuemFalta={rota.exibirQuemFalta} />
+      <ItinerarioGate destinoId={rota.id} secretariaId={rota.secretariaId} exibirQuemFalta={rota.exibirQuemFalta} />
     </form>
   );
+}
+
+// Só mostra o editor de itinerário se o DONO tiver o módulo ligado.
+function ItinerarioGate(props: { destinoId: string; secretariaId: string | null; exibirQuemFalta: string }) {
+  const { data: ativo } = useQuery({
+    queryKey: ["flag-itinerario"],
+    queryFn: async () => {
+      const { data } = await supabase.from("ConfiguracaoPlataforma").select("itinerarioAtivo").eq("id", "GLOBAL").maybeSingle();
+      return Boolean((data as { itinerarioAtivo?: boolean } | null)?.itinerarioAtivo);
+    },
+  });
+  if (!ativo) return null;
+  return <Itinerario {...props} />;
 }
 
 interface Ponto { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; localidadeId: string | null; faculdade: string | null }
