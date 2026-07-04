@@ -5,7 +5,7 @@ import { supabase } from "../lib/supabase";
 import type { EstadoEnquete } from "./fila";
 import FilaAoVivo from "./FilaAoVivo";
 import ChamadaAoVivo, { type PontoChamada } from "./ChamadaAoVivo";
-import AvisoSemViagem from "../components/AvisoSemViagem";
+import AvisoSemViagem, { dataExtenso } from "../components/AvisoSemViagem";
 import { useOnline, cacheSalvar, cacheLer, salvarPendente, lerPendente, limparPendente, type AcaoEnquete } from "../lib/offline";
 
 type Intencao = "IDA_VOLTA" | "SO_IDA" | "SO_VOLTA";
@@ -24,44 +24,122 @@ function intencaoDe(r: { vaiIda: boolean; vaiVolta: boolean } | null): Intencao 
   return "IDA_VOLTA";
 }
 
-// Faixa da semana: mostra os dias em que a rota opera, com o dia de HOJE destacado.
-// Só informativo (a votação é sempre do dia atual) — deixa clara a agenda da rota.
+// Faixa da semana: mostra a semana atual com o NÚMERO do dia em cada bolinha, os dias
+// em que a rota opera destacados e HOJE em azul. Informativo (a votação é do dia atual).
 const DIAS_ISO = [
   { iso: 1, l: "Seg" }, { iso: 2, l: "Ter" }, { iso: 3, l: "Qua" }, { iso: 4, l: "Qui" },
   { iso: 5, l: "Sex" }, { iso: 6, l: "Sáb" }, { iso: 7, l: "Dom" },
 ];
-function FaixaSemana({ diasSemana, horarioSaida }: { diasSemana?: number[]; horarioSaida?: string | null }) {
+function isoLocal(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function FaixaSemana({ diasSemana, horarioSaida, selDia, onSelecionar }: {
+  diasSemana?: number[]; horarioSaida?: string | null;
+  selDia?: string | null; onSelecionar?: (dataStr: string, ehHoje: boolean) => void;
+}) {
   if (!diasSemana || diasSemana.length === 0) return null;
-  const hojeJs = new Date().getDay(); // 0=dom..6=sáb
-  const hojeIso = hojeJs === 0 ? 7 : hojeJs;
+  const hoje = new Date();
+  const hojeIso = hoje.getDay() === 0 ? 7 : hoje.getDay();
+  const segunda = new Date(hoje);
+  segunda.setDate(hoje.getDate() - (hojeIso - 1));
   return (
     <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
       <div className="flex justify-between gap-1">
         {DIAS_ISO.map((d) => {
           const opera = diasSemana.includes(d.iso);
-          const hoje = d.iso === hojeIso;
+          const ehHoje = d.iso === hojeIso;
+          const data = new Date(segunda);
+          data.setDate(segunda.getDate() + (d.iso - 1));
+          const ds = isoLocal(data);
+          const selecionado = selDia ? ds === selDia : ehHoje;
           return (
-            <div key={d.iso} className="flex flex-1 flex-col items-center gap-1">
-              <span className={`text-[10px] font-medium uppercase ${hoje ? "text-brand-700" : "text-slate-400"}`}>{d.l}</span>
+            <button
+              key={d.iso}
+              type="button"
+              onClick={() => onSelecionar?.(ds, ehHoje)}
+              className="flex flex-1 flex-col items-center gap-1"
+            >
+              <span className={`text-[10px] font-medium uppercase ${selecionado ? "text-brand-700" : "text-slate-400"}`}>{d.l}</span>
               <span
-                title={opera ? "Dia de operação" : "Sem transporte"}
-                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ring-1 ${
-                  hoje
-                    ? "bg-brand-700 text-white ring-brand-700"
+                className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold tabular-nums transition-colors ${
+                  selecionado
+                    ? "bg-brand-700 text-white ring-2 ring-brand-700"
                     : opera
-                      ? "bg-brand-50 text-brand-700 ring-brand-200"
-                      : "bg-slate-50 text-slate-300 ring-slate-200"
+                      ? "bg-brand-50 text-brand-700 ring-1 ring-brand-200 hover:bg-brand-100"
+                      : "bg-slate-50 text-slate-300 ring-1 ring-slate-100 hover:bg-slate-100"
                 }`}
               >
-                {opera ? "•" : "–"}
+                {String(data.getDate()).padStart(2, "0")}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
-      <p className="mt-2 text-center text-[11px] text-slate-400">
-        Dias de operação da sua rota{horarioSaida ? ` · saída ${horarioSaida}` : ""}
+      <p className="mt-2 flex items-center justify-center gap-3 text-[11px] text-slate-400">
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-brand-200" /> opera</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-200" /> sem transporte</span>
+        {horarioSaida ? <span>· saída {horarioSaida}</span> : null}
       </p>
+      <p className="mt-1 text-center text-[10px] text-slate-300">toque num dia para ver quem foi (passado) ou quando abre (futuro)</p>
+    </div>
+  );
+}
+
+// Visão de um DIA selecionado na faixa: passado = quem foi (histórico); futuro = aviso amigável.
+interface DiaPayload {
+  modo: "HISTORICO" | "FUTURO";
+  viagem?: { id: string; horario: string } | null;
+  fila?: { itens: { reservaId: string; nome: string; localidade: string | null; status: string }[] } | null;
+  motivo?: string | null; abreHora?: string | null; horarioSaida?: string | null;
+}
+function DiaView({ diaSel }: { diaSel: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["enquete-dia", diaSel],
+    queryFn: async (): Promise<DiaPayload | null> => {
+      const { data } = await supabase.functions.invoke("enquete", { body: { action: "estado", data: diaSel } });
+      return (data as DiaPayload) ?? null;
+    },
+  });
+  const titulo = dataExtenso(diaSel);
+  if (isLoading) return <p className="py-8 text-center text-sm text-slate-400">Carregando {titulo}…</p>;
+  if (!data) return <p className="py-8 text-center text-sm text-slate-400">Não foi possível carregar esse dia.</p>;
+
+  if (data.modo === "FUTURO") {
+    const msg = ({
+      FORA_DE_OPERACAO: "Não há transporte nesse dia (fora dos dias de operação da rota).",
+      FERIADO: "Feriado ou recesso nesse dia — não haverá transporte.",
+      SEM_ONIBUS: "Não há ônibus ativo para a rota nesse dia.",
+    } as Record<string, string>)[data.motivo ?? ""] ?? `A votação desse dia será lançada às ${data.abreHora ?? data.horarioSaida ?? "—"}.`;
+    return (
+      <div className="rounded-2xl bg-white p-6 text-center ring-1 ring-slate-200">
+        <p className="text-base font-semibold capitalize text-slate-800">{titulo}</p>
+        <p className="mx-auto mt-1 max-w-xs text-sm text-slate-500">{msg}</p>
+      </div>
+    );
+  }
+  // HISTÓRICO
+  const foram = (data.fila?.itens ?? []).filter((i) => i.status === "CONFIRMADA");
+  if (!data.viagem) {
+    return (
+      <div className="rounded-2xl bg-white p-6 text-center ring-1 ring-slate-200">
+        <p className="text-base font-semibold capitalize text-slate-800">{titulo}</p>
+        <p className="mt-1 text-sm text-slate-500">Não houve viagem nesse dia.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+      <p className="text-base font-semibold capitalize text-slate-800">{titulo}</p>
+      <p className="mt-0.5 text-sm text-slate-500">Foram <strong>{foram.length}</strong> aluno(s) · saída {data.viagem.horario}</p>
+      <ul className="mt-3 divide-y divide-slate-50">
+        {foram.map((i) => (
+          <li key={i.reservaId} className="flex items-center justify-between py-2 text-sm">
+            <span className="text-slate-700">{i.nome}</span>
+            <span className="text-xs text-slate-400">{i.localidade ?? "—"}</span>
+          </li>
+        ))}
+        {foram.length === 0 && <li className="py-2 text-sm text-slate-400">Ninguém confirmou nesse dia.</li>}
+      </ul>
     </div>
   );
 }
@@ -104,6 +182,8 @@ export default function Reserva() {
   const [intencao, setIntencao] = useState<Intencao>("IDA_VOLTA");
   const [ponto, setPonto] = useState<string>("");
   const [pendente, setPendente] = useState<AcaoEnquete | null>(() => lerPendente());
+  const [diaSel, setDiaSel] = useState<string | null>(null); // dia selecionado na faixa (null = hoje)
+  const selecionarDia = useCallback((ds: string, ehHoje: boolean) => setDiaSel(ehHoje ? null : ds), []);
   const [agora, setAgora] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setAgora(Date.now()), 1000);
@@ -207,12 +287,26 @@ export default function Reserva() {
     return <p className="py-10 text-center text-sm text-slate-400">Carregando viagem de hoje…</p>;
   }
 
+  // dia selecionado na faixa (passado = quem foi; futuro = aviso) — só leitura
+  if (diaSel) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-bold text-slate-900">Outro dia</h1>
+          <button onClick={() => setDiaSel(null)} className="text-sm font-medium text-brand-700 hover:underline">Ver hoje</button>
+        </div>
+        <FaixaSemana diasSemana={estado?.diasSemana} horarioSaida={estado?.horarioSaida} selDia={diaSel} onSelecionar={selecionarDia} />
+        <DiaView diaSel={diaSel} />
+      </div>
+    );
+  }
+
   if (!estado?.viagem) {
     return (
       <div className="space-y-3">
         <h1 className="text-lg font-bold text-slate-900">Viagem de hoje</h1>
         <BannerConexao online={online} pendente={pendente} />
-        <FaixaSemana diasSemana={estado?.diasSemana} horarioSaida={estado?.horarioSaida} />
+        <FaixaSemana diasSemana={estado?.diasSemana} horarioSaida={estado?.horarioSaida} selDia={null} onSelecionar={selecionarDia} />
         <AvisoSemViagem
           motivo={estado?.motivo}
           proximaData={estado?.proximaData}
@@ -242,7 +336,7 @@ export default function Reserva() {
         </span>
       </div>
 
-      <FaixaSemana diasSemana={estado.diasSemana} horarioSaida={estado.horarioSaida} />
+      <FaixaSemana diasSemana={estado.diasSemana} horarioSaida={estado.horarioSaida} selDia={null} onSelecionar={selecionarDia} />
       <BannerConexao online={online} pendente={pendente} />
 
       {erro && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</p>}

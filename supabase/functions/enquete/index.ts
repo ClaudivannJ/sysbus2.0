@@ -118,8 +118,43 @@ Deno.serve(async (req) => {
 
   if (!aluno.destinoId) return json({ error: "sem rota definida" }, 400);
   // agenda da rota (dias/horário) — usada nos dois caminhos p/ o portal mostrar a semana
-  const { data: cfgRota } = await db.from("Destino").select("diasSemana, horarioSaida").eq("id", aluno.destinoId).maybeSingle();
+  const { data: cfgRota } = await db.from("Destino").select("diasSemana, horarioSaida, enqueteAbre").eq("id", aluno.destinoId).maybeSingle();
   const diasSemana: number[] = cfgRota?.diasSemana ?? [];
+  const abreHora: string | null = cfgRota?.enqueteAbre ?? null;
+
+  // NAVEGAÇÃO POR DIA (bolinhas da semana): passado = histórico (quem foi), futuro = aviso.
+  const hojeStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Recife" }).format(new Date());
+  const dataParam = String(body.data ?? "").slice(0, 10);
+  if (dataParam && dataParam !== hojeStr) {
+    const base = { data: dataParam, diasSemana, horarioSaida: cfgRota?.horarioSaida ?? null, abreHora };
+    const inicioDia = new Date(`${dataParam}T00:00:00-03:00`);
+    const fimDia = new Date(inicioDia.getTime() + 86400000);
+    if (dataParam < hojeStr) {
+      // HISTÓRICO (somente leitura): fila daquele dia
+      const { data: vrow } = await db.from("Viagem").select("id, horario").eq("destinoId", aluno.destinoId)
+        .gte("data", inicioDia.toISOString()).lt("data", fimDia.toISOString()).limit(1).maybeSingle();
+      if (!vrow) return json({ modo: "HISTORICO", ...base, viagem: null, fila: null });
+      const fila = await calcularFila(db, vrow.id);
+      return json({ modo: "HISTORICO", ...base, viagem: { id: vrow.id, horario: vrow.horario }, fila });
+    }
+    // FUTURO: opera nesse dia? feriado? tem ônibus? → mensagem amigável
+    const [yy, mm, dd] = dataParam.split("-").map(Number);
+    const dowJs = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay();
+    const dow = dowJs === 0 ? 7 : dowJs;
+    let motivo: string | null = null;
+    if (!diasSemana.includes(dow)) motivo = "FORA_DE_OPERACAO";
+    else {
+      const { data: exc } = await db.from("ExcecaoCalendario").select("descricao")
+        .gte("data", inicioDia.toISOString()).lt("data", fimDia.toISOString())
+        .or(`destinoId.eq.${aluno.destinoId},destinoId.is.null`).limit(1).maybeSingle();
+      if (exc) motivo = "FERIADO";
+      else {
+        const { count } = await db.from("Onibus").select("id", { count: "exact", head: true }).eq("destinoId", aluno.destinoId).eq("ativo", true);
+        if (!count) motivo = "SEM_ONIBUS";
+      }
+    }
+    return json({ modo: "FUTURO", ...base, motivo });
+  }
 
   const res = await resolverViagem(db, aluno.destinoId);
   const viagemId = res.id;
