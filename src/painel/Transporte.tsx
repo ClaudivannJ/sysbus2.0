@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Radio, UserPlus, Search, Megaphone } from "lucide-react";
+import { Radio, UserPlus, Search, Megaphone, Bus } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import FilaAoVivo from "../portal/FilaAoVivo";
 import ChamadaAoVivo, { type PontoChamada } from "../portal/ChamadaAoVivo";
 import type { DadosFila } from "../portal/fila";
+import AvisoSemViagem, { type MotivoSemViagem } from "../components/AvisoSemViagem";
 
 interface Rota { id: string; nome: string }
 interface AlunoLite { id: string; nome: string; cpf: string }
+interface EstadoTransp {
+  viagem: { id: string; horario: string; abreEm?: string | null } | null;
+  fila: DadosFila | null; aberta: boolean;
+  motivo?: MotivoSemViagem; proximaData?: string | null; descricaoExcecao?: string | null; horarioSaida?: string | null;
+  frota?: { ativos: number; capacidade: number };
+}
 
 export default function Transporte() {
   const { perfil } = useAuth();
@@ -30,9 +37,9 @@ export default function Transporte() {
   const { data: estado, isFetching, refetch } = useQuery({
     queryKey: ["transp-estado", rotaId],
     enabled: Boolean(rotaId),
-    queryFn: async (): Promise<{ viagem: { id: string; horario: string } | null; fila: DadosFila | null; aberta: boolean } | null> => {
+    queryFn: async (): Promise<EstadoTransp | null> => {
       const { data } = await supabase.functions.invoke("transporte", { body: { action: "estado", destinoId: rotaId } });
-      return data ?? null;
+      return (data as EstadoTransp) ?? null;
     },
   });
 
@@ -105,11 +112,29 @@ export default function Transporte() {
       )}
 
       {!estado?.viagem ? (
-        <p className="rounded-lg bg-white px-4 py-8 text-center text-sm text-slate-400 ring-1 ring-slate-200">
-          {isFetching ? "Carregando…" : "Sem viagem hoje nesta rota."}
-        </p>
+        isFetching ? (
+          <p className="rounded-lg bg-white px-4 py-8 text-center text-sm text-slate-400 ring-1 ring-slate-200">Carregando…</p>
+        ) : (
+          <AvisoSemViagem
+            motivo={estado?.motivo}
+            proximaData={estado?.proximaData}
+            descricaoExcecao={estado?.descricaoExcecao}
+            horarioSaida={estado?.horarioSaida}
+            contexto="secretaria"
+          />
+        )
       ) : (
         <>
+          {estado.frota && estado.frota.ativos <= 1 && (
+            <div className="flex items-center gap-3 rounded-xl bg-amber-50 p-3 text-sm ring-1 ring-amber-200">
+              <Bus className="h-5 w-5 shrink-0 text-amber-600" />
+              <p className="text-amber-800">
+                {estado.frota.ativos === 0
+                  ? "Nenhum ônibus ativo nesta rota hoje — ative a frota em Frota para abrir vagas."
+                  : `Hoje só há 1 ônibus ativo nesta rota (capacidade ${estado.frota.capacidade}). Os demais estão inativos.`}
+              </p>
+            </div>
+          )}
           {chamada && chamada.pontos.length > 0 && (
             <div>
               <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700"><Megaphone className="h-4 w-4 text-brand-600" /> Chamada</h2>

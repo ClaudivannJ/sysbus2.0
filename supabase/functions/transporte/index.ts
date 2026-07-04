@@ -10,7 +10,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { alocarViagem, type ReservaInput } from "../_shared/alocacao.ts";
-import { inicioDeHoje, amanha } from "../_shared/tempo.ts";
+import { resolverViagem } from "../_shared/calendario.ts";
 
 const cors: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -79,8 +79,22 @@ Deno.serve(async (req) => {
   if (!destino) return json({ error: "rota não encontrada" }, 404);
   if (caller.papel !== "DONO" && destino.secretariaId !== caller.secretariaId) return json({ error: "sem permissão nesta rota" }, 403);
 
-  const { data: viagem } = await db.from("Viagem").select("id, horario, status, abreEm, fechaEm").eq("destinoId", destinoId).gte("data", inicioDeHoje().toISOString()).lt("data", amanha().toISOString()).limit(1).maybeSingle();
+  // materializa a viagem pelo calendário (ou explica o motivo de não haver hoje)
+  const resV = await resolverViagem(db, destinoId);
+  if (!resV.id) {
+    return json({
+      viagem: null, fila: null, aberta: false,
+      motivo: resV.motivo ?? "SEM_VIAGEM", proximaData: resV.proxima ?? null,
+      descricaoExcecao: resV.descricao ?? null, horarioSaida: resV.horario ?? null,
+    });
+  }
+  const { data: viagem } = await db.from("Viagem").select("id, horario, status, abreEm, fechaEm").eq("id", resV.id).maybeSingle();
   if (!viagem) return json({ viagem: null, fila: null, aberta: false });
+
+  // frota ativa hoje (p/ avisar "só 1 ônibus" etc.)
+  const { data: frotaRows } = await db.from("Onibus").select("capacidade, ativo").eq("destinoId", destinoId);
+  const ativosFrota = (frotaRows ?? []).filter((o: DB) => o.ativo);
+  const frota = { ativos: ativosFrota.length, capacidade: ativosFrota.reduce((s: number, o: DB) => s + o.capacidade, 0) };
 
   const agora = Date.now();
   const aberta = viagem.status === "ABERTA"
@@ -111,5 +125,5 @@ Deno.serve(async (req) => {
 
   const fila = await calcularFila(db, viagem.id);
   if (action === "adicionar" || action === "remover") await broadcast(fila, viagem.id);
-  return json({ viagem: { id: viagem.id, horario: viagem.horario, status: viagem.status }, fila, aberta });
+  return json({ viagem: { id: viagem.id, horario: viagem.horario, status: viagem.status, abreEm: viagem.abreEm }, fila, aberta, frota });
 });
