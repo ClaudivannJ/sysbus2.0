@@ -1,0 +1,18 @@
+# Deploy do SYSBUS (Vite React SPA) no Netlify.
+# Variáveis de ambiente (defina no painel do Netlify → Site settings → Environment variables):
+#   VITE_SUPABASE_URL       = https://mtumvzzvwankdppebhle.supabase.co
+#   VITE_SUPABASE_ANON_KEY   = <anon key do projeto Supabase>
+# Elas são embutidas no bundle no build (chaves públicas — a segurança real fica no RLS/Edge).
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# SPA: toda rota cai no index.html (client-side routing do react-router).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
