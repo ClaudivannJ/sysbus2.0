@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Route as RouteIcon, Plus, Check, MapPin, ArrowUp, ArrowDown, Trash2, ChevronDown } from "lucide-react";
+import { Route as RouteIcon, Plus, Check, MapPin, ArrowUp, ArrowDown, Trash2, ChevronDown, Clock } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 
@@ -129,8 +129,85 @@ function RotaCard({ rota }: { rota: Rota }) {
         {salvo ? <><Check className="h-4 w-4" /> Salvo</> : salvando ? "Salvando…" : "Salvar"}
       </button>
 
+      <HorariosChamada destinoId={rota.id} />
       <ItinerarioGate destinoId={rota.id} secretariaId={rota.secretariaId} exibirQuemFalta={rota.exibirQuemFalta} />
     </form>
+  );
+}
+
+// Horário da chamada por ponto de embarque (a secretaria define). A chamada inicia sozinha.
+function HorariosChamada({ destinoId }: { destinoId: string }) {
+  const qc = useQueryClient();
+  const [aberto, setAberto] = useState(false);
+
+  const { data: locais } = useQuery({
+    queryKey: ["rota-localidades", destinoId],
+    enabled: aberto,
+    queryFn: async () => {
+      const { data } = await supabase.from("OnibusLocalidade")
+        .select("localidade:Localidade ( id, nome ), onibus:Onibus!inner ( destinoId )")
+        .eq("onibus.destinoId", destinoId);
+      const vistos = new Set<string>();
+      const out: { id: string; nome: string }[] = [];
+      for (const r of (data ?? []) as { localidade: { id: string; nome: string } | { id: string; nome: string }[] }[]) {
+        const l = Array.isArray(r.localidade) ? r.localidade[0] : r.localidade;
+        if (l && !vistos.has(l.id)) { vistos.add(l.id); out.push(l); }
+      }
+      return out.sort((a, b) => a.nome.localeCompare(b.nome));
+    },
+  });
+  const { data: horarios } = useQuery({
+    queryKey: ["horarios-chamada", destinoId],
+    enabled: aberto,
+    queryFn: async () => {
+      const { data } = await supabase.from("HorarioChamada").select("localidadeId,horario").eq("destinoId", destinoId);
+      return Object.fromEntries(((data ?? []) as { localidadeId: string; horario: string }[]).map((h) => [h.localidadeId, h.horario])) as Record<string, string>;
+    },
+  });
+
+  async function salvar(localidadeId: string, horario: string) {
+    if (!horario) {
+      await supabase.from("HorarioChamada").delete().eq("destinoId", destinoId).eq("localidadeId", localidadeId);
+    } else {
+      await supabase.from("HorarioChamada").upsert({ id: crypto.randomUUID(), destinoId, localidadeId, horario }, { onConflict: "destinoId,localidadeId" });
+    }
+    qc.invalidateQueries({ queryKey: ["horarios-chamada", destinoId] });
+  }
+
+  if (!aberto) {
+    return (
+      <button type="button" onClick={() => setAberto(true)} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline">
+        <Clock className="h-4 w-4" /> Horários da chamada por ponto
+      </button>
+    );
+  }
+  return (
+    <div className="space-y-3 rounded-xl bg-slate-50/60 p-4 ring-1 ring-slate-200">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-700"><Clock className="h-4 w-4 text-brand-600" /> Horário da chamada por ponto</p>
+        <button type="button" onClick={() => setAberto(false)} className="text-slate-400 hover:text-slate-700"><ChevronDown className="h-4 w-4 rotate-180" /></button>
+      </div>
+      <p className="text-xs text-slate-500">A chamada de cada ponto inicia sozinha neste horário — mesmo sem o monitor presente. Deixe vazio para usar o fechamento da enquete.</p>
+      {!locais || !horarios ? (
+        <p className="text-xs text-slate-400">Carregando…</p>
+      ) : locais.length === 0 ? (
+        <p className="text-xs text-slate-400">Cadastre ônibus e localidades desta rota (em Frota) para definir os horários.</p>
+      ) : (
+        <div className="space-y-2">
+          {locais.map((l) => (
+            <div key={l.id} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
+              <span className="text-sm text-slate-700">{l.nome}</span>
+              <input
+                type="time"
+                defaultValue={horarios[l.id] ?? ""}
+                onChange={(e) => salvar(l.id, e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

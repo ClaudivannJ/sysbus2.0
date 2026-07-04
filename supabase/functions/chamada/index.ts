@@ -70,9 +70,8 @@ Deno.serve(async (req) => {
     .eq("destinoId", destinoId).gte("data", inicioDeHoje().toISOString()).lt("data", amanha().toISOString()).limit(1).maybeSingle();
   if (!viagem) return json({ viagem: null, pontos: [], intervaloSegundos: 10 });
 
-  // início da chamada = quando o monitor iniciou (se iniciou), senão o fechamento da enquete / horário
+  // início padrão da chamada (fallback p/ pontos sem horário) = fechamento da enquete / horário
   const inicioPadrao = viagem.fechaEm ?? horaParaHoje(viagem.horario)?.toISOString() ?? inicioDeHoje().toISOString();
-  const chamadaEmISO = viagem.chamadaIniciadaEm ?? inicioPadrao;
 
   // ---- iniciar (antecipar) — chamada única, guarda o início na Viagem ----
   if (action === "iniciar") {
@@ -102,19 +101,31 @@ Deno.serve(async (req) => {
   const onibusInputs = onibus.map((o: DB) => ({ id: o.id, nome: o.nome, capacidade: o.capacidade, prioridades: Object.fromEntries((o.localidades ?? []).map((l: DB) => [l.localidadeId, l.prioridade])) }));
   const aloc = alocarViagem(reservaInputs, onibusInputs);
 
-  // Chamada ÚNICA: os CONFIRMADOS na ordem de voto (FIFO). Não é por ponto de embarque —
-  // a vaga/chamada é de quem votou primeiro. `alocacoes` já vem na ordem de voto.
-  const listaConfirmados = aloc.alocacoes.filter((x) => x.status === "CONFIRMADA").map((a) => {
+  // horário da chamada POR PONTO (config da secretaria) → cada embarque inicia sozinho no seu horário
+  const { data: horRows } = await db.from("HorarioChamada").select("localidadeId, horario").eq("destinoId", destinoId);
+  const horPorLoc = new Map<string, string>((horRows ?? []).map((h: DB) => [h.localidadeId, h.horario]));
+
+  // agrupa CONFIRMADOS por ponto de embarque; dentro do ponto, ordem de voto (posição da fila)
+  const grupos = new Map<string, { ponto: string; itens: DB[] }>();
+  for (const a of aloc.alocacoes.filter((x) => x.status === "CONFIRMADA")) {
     const r: DB = rById.get(a.reservaId);
-    return {
-      reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null,
-      onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null, posicao: a.posicao,
-    };
-  });
-  // mantém o formato `pontos` (1 grupo) p/ compatibilidade com o componente atual
-  const pontos = listaConfirmados.length
-    ? [{ localidadeId: "GERAL", ponto: "Chamada (ordem de voto)", chamadaEmISO, ordem: listaConfirmados }]
-    : [];
+    const key = r.aluno?.localidadeId ?? "__sem__";
+    let g = grupos.get(key);
+    if (!g) { g = { ponto: r.aluno?.localidade?.nome ?? "Sem ponto", itens: [] }; grupos.set(key, g); }
+    g.itens.push({ reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null, onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null, posicao: a.posicao });
+  }
+  let pontos = [...grupos.entries()].map(([localidadeId, g]) => {
+    // início do ponto: override do monitor (iniciar agora) → senão horário configurado → senão padrão
+    const horaCfg = horPorLoc.get(localidadeId);
+    const inicioPonto = viagem.chamadaIniciadaEm
+      ?? (horaCfg ? horaParaHoje(horaCfg)?.toISOString() ?? inicioPadrao : inicioPadrao);
+    return { localidadeId, ponto: g.ponto, chamadaEmISO: inicioPonto, ordem: g.itens };
+  }).sort((a, b) => a.ponto.localeCompare(b.ponto));
+
+  // ALUNO vê só a chamada do SEU ponto de embarque; gestor/monitor vê todos.
+  if (meuAlunoId && !ehGestor && minhaLocalidade) {
+    pontos = pontos.filter((p) => p.localidadeId === minhaLocalidade);
+  }
 
   const meuReservaId = meuAlunoId ? (reservas.find((r: DB) => r.alunoId === meuAlunoId)?.id ?? null) : null;
 
