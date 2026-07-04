@@ -20,6 +20,8 @@ export interface DadosFila {
   itens: ItemFila[];
 }
 
+export type MotivoSemViagem = "FORA_DE_OPERACAO" | "FERIADO" | "SEM_ENQUETE" | "SEM_ROTA" | "SEM_VIAGEM";
+
 export interface EstadoEnquete {
   viagem: { id: string; status: string; horario: string; abreEm: string | null; fechaEm: string | null } | null;
   fila: DadosFila | null;
@@ -28,4 +30,9 @@ export interface EstadoEnquete {
   aberta: boolean;
   localidades: { id: string; nome: string }[];
   localidadeId: string | null;
+  // quando não há viagem hoje, o backend explica o porquê:
+  motivo?: MotivoSemViagem;
+  proximaData?: string | null;
+  descricaoExcecao?: string | null;
+  horarioSaida?: string | null;
 }

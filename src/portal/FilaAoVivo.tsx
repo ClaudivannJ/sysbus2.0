@@ -110,6 +110,11 @@ export default function FilaAoVivo({ viagemId, inicial }: { viagemId: string; in
           {aoVivo ? "ao vivo" : "atualizando…"}
         </span>
       </div>
+      {dados.emEspera > 0 && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
+          <strong>Confirmados</strong> têm vaga garantida e viajam. Quem está <strong>em espera</strong> não viaja hoje — só entra se alguém desistir, na ordem da fila.
+        </p>
+      )}
 
       {grupos.length === 0 ? (
         <div className="rounded-xl bg-white px-4 py-8 text-center text-sm text-slate-400 ring-1 ring-slate-200">
