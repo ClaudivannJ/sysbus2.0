@@ -115,6 +115,18 @@ export default function MonitorScreen() {
   const embarcados = (estado?.pontos ?? []).reduce(
     (s, p) => s + p.itens.filter((i) => (sentido === "IDA" ? i.embarcouIda : i.embarcouVolta)).length, 0,
   );
+  // embarcados x total por ÔNIBUS (para o monitor acompanhar cada veículo)
+  const porOnibus = (() => {
+    const m = new Map<string, { emb: number; tot: number }>();
+    for (const p of estado?.pontos ?? []) for (const it of p.itens) {
+      const nome = it.onibusNome ?? "Sem ônibus";
+      const g = m.get(nome) ?? { emb: 0, tot: 0 };
+      g.tot++;
+      if (sentido === "IDA" ? it.embarcouIda : it.embarcouVolta) g.emb++;
+      m.set(nome, g);
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  })();
 
   return (
     <div className="mx-auto flex min-h-screen max-w-lg flex-col bg-slate-50">
@@ -169,6 +181,23 @@ export default function MonitorScreen() {
             <p className="text-sm text-slate-500">
               Saída {estado.viagem.horario} · <strong>{embarcados}/{total}</strong> embarcados ({sentido === "IDA" ? "ida" : "volta"})
             </p>
+
+            {porOnibus.length > 0 && (
+              <div className={`grid gap-2 ${porOnibus.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                {porOnibus.map(([nome, g]) => {
+                  const pct = g.tot ? Math.round((g.emb / g.tot) * 100) : 0;
+                  return (
+                    <div key={nome} className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-slate-500"><Bus className="h-3.5 w-3.5 text-brand-600" /> {nome}</p>
+                      <p className="mt-0.5 text-lg font-bold text-slate-900">{g.emb}<span className="text-sm font-normal text-slate-400">/{g.tot}</span> <span className="text-xs font-normal text-slate-400">embarcados</span></p>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {itinSentido.length > 0 && (
               <div className="space-y-2 rounded-xl bg-white p-3 ring-1 ring-slate-200">
