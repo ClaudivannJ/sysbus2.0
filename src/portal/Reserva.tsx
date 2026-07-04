@@ -23,6 +23,48 @@ function intencaoDe(r: { vaiIda: boolean; vaiVolta: boolean } | null): Intencao 
   return "IDA_VOLTA";
 }
 
+// Faixa da semana: mostra os dias em que a rota opera, com o dia de HOJE destacado.
+// Só informativo (a votação é sempre do dia atual) — deixa clara a agenda da rota.
+const DIAS_ISO = [
+  { iso: 1, l: "Seg" }, { iso: 2, l: "Ter" }, { iso: 3, l: "Qua" }, { iso: 4, l: "Qui" },
+  { iso: 5, l: "Sex" }, { iso: 6, l: "Sáb" }, { iso: 7, l: "Dom" },
+];
+function FaixaSemana({ diasSemana, horarioSaida }: { diasSemana?: number[]; horarioSaida?: string | null }) {
+  if (!diasSemana || diasSemana.length === 0) return null;
+  const hojeJs = new Date().getDay(); // 0=dom..6=sáb
+  const hojeIso = hojeJs === 0 ? 7 : hojeJs;
+  return (
+    <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+      <div className="flex justify-between gap-1">
+        {DIAS_ISO.map((d) => {
+          const opera = diasSemana.includes(d.iso);
+          const hoje = d.iso === hojeIso;
+          return (
+            <div key={d.iso} className="flex flex-1 flex-col items-center gap-1">
+              <span className={`text-[10px] font-medium uppercase ${hoje ? "text-brand-700" : "text-slate-400"}`}>{d.l}</span>
+              <span
+                title={opera ? "Dia de operação" : "Sem transporte"}
+                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ring-1 ${
+                  hoje
+                    ? "bg-brand-700 text-white ring-brand-700"
+                    : opera
+                      ? "bg-brand-50 text-brand-700 ring-brand-200"
+                      : "bg-slate-50 text-slate-300 ring-slate-200"
+                }`}
+              >
+                {opera ? "•" : "–"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-center text-[11px] text-slate-400">
+        Dias de operação da sua rota{horarioSaida ? ` · saída ${horarioSaida}` : ""}
+      </p>
+    </div>
+  );
+}
+
 function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("pt-BR", { timeZone: "America/Recife", hour: "2-digit", minute: "2-digit" });
 }
@@ -101,6 +143,7 @@ export default function Reserva() {
     return (
       <div className="space-y-3">
         <h1 className="text-lg font-bold text-slate-900">Viagem de hoje</h1>
+        <FaixaSemana diasSemana={estado?.diasSemana} horarioSaida={estado?.horarioSaida} />
         <AvisoSemViagem
           motivo={estado?.motivo}
           proximaData={estado?.proximaData}
@@ -123,6 +166,8 @@ export default function Reserva() {
           saída {estado.viagem.horario}
         </span>
       </div>
+
+      <FaixaSemana diasSemana={estado.diasSemana} horarioSaida={estado.horarioSaida} />
 
       {erro && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</p>}
 

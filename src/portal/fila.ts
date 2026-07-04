@@ -35,4 +35,6 @@ export interface EstadoEnquete {
   proximaData?: string | null;
   descricaoExcecao?: string | null;
   horarioSaida?: string | null;
+  // agenda da rota (dias de operação ISO 1=seg..7=dom) — p/ a faixa da semana
+  diasSemana?: number[];
 }

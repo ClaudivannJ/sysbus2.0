@@ -117,13 +117,18 @@ Deno.serve(async (req) => {
   const action = body.action ?? "estado";
 
   if (!aluno.destinoId) return json({ error: "sem rota definida" }, 400);
+  // agenda da rota (dias/horário) — usada nos dois caminhos p/ o portal mostrar a semana
+  const { data: cfgRota } = await db.from("Destino").select("diasSemana, horarioSaida").eq("id", aluno.destinoId).maybeSingle();
+  const diasSemana: number[] = cfgRota?.diasSemana ?? [];
+
   const res = await resolverViagem(db, aluno.destinoId);
   const viagemId = res.id;
   if (!viagemId) {
     return json({
       viagem: null, fila: null, minhaReserva: null, autorizado: false,
       motivo: res.motivo ?? "SEM_VIAGEM", proximaData: res.proxima ?? null,
-      descricaoExcecao: res.descricao ?? null, horarioSaida: res.horario ?? null,
+      descricaoExcecao: res.descricao ?? null, horarioSaida: res.horario ?? cfgRota?.horarioSaida ?? null,
+      diasSemana,
     });
   }
 
@@ -185,5 +190,8 @@ Deno.serve(async (req) => {
   }
 
   const { data: minha } = await db.from("Reserva").select("status, vaiIda, vaiVolta").eq("viagemId", viagemId).eq("alunoId", aluno.id).maybeSingle();
-  return json({ viagem, fila, minhaReserva: minha ?? null, autorizado, aberta, localidades, localidadeId: aluno.localidadeId });
+  return json({
+    viagem, fila, minhaReserva: minha ?? null, autorizado, aberta, localidades, localidadeId: aluno.localidadeId,
+    diasSemana, horarioSaida: cfgRota?.horarioSaida ?? null,
+  });
 });
