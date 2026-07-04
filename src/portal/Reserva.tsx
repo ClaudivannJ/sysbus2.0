@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarCheck, Check, X } from "lucide-react";
+import { CalendarCheck, Check, X, Bus } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { EstadoEnquete } from "./fila";
 import FilaAoVivo from "./FilaAoVivo";
 import ChamadaAoVivo, { type PontoChamada } from "./ChamadaAoVivo";
 
 type Intencao = "IDA_VOLTA" | "SO_IDA" | "SO_VOLTA";
+type PosicaoOnibus = { nome: string; sentido: "IDA" | "VOLTA"; faltamQtd: number; meuPonto: boolean };
 
 const LABEL_INTENCAO: Record<Intencao, string> = {
   IDA_VOLTA: "Vai e volta",
@@ -61,8 +62,8 @@ export default function Reserva() {
   // chamada ao vivo (aparece p/ o aluno; refetch p/ pegar novos confirmados / início antecipado)
   const { data: chamada } = useQuery({
     queryKey: ["chamada-aluno"],
-    refetchInterval: 20000,
-    queryFn: async (): Promise<{ intervaloSegundos: number; pontos: PontoChamada[]; meuReservaId: string | null } | null> => {
+    refetchInterval: 15000,
+    queryFn: async (): Promise<{ intervaloSegundos: number; pontos: PontoChamada[]; meuReservaId: string | null; posicaoOnibus: PosicaoOnibus | null } | null> => {
       const { data } = await supabase.functions.invoke("chamada", { body: { action: "estado" } });
       return data ?? null;
     },
@@ -187,6 +188,24 @@ export default function Reserva() {
           >
             <Check className="h-4 w-4" /> {acao ? "Confirmando…" : "Confirmar presença"}
           </button>
+        </div>
+      )}
+
+      {chamada?.posicaoOnibus && (
+        <div className={`flex items-center gap-3 rounded-2xl p-4 ring-1 ${chamada.posicaoOnibus.meuPonto ? "bg-brand-50 ring-brand-200" : "bg-white ring-slate-200"}`}>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700"><Bus className="h-5 w-5" /></div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-800">
+              Ônibus em <span className="text-brand-700">{chamada.posicaoOnibus.nome}</span>
+              <span className="ml-1 text-xs font-normal text-slate-400">· {chamada.posicaoOnibus.sentido === "IDA" ? "ida" : "volta"}</span>
+            </p>
+            <p className="text-xs text-slate-500">
+              {chamada.posicaoOnibus.faltamQtd === 0
+                ? "Todos embarcaram neste ponto."
+                : `Faltam ${chamada.posicaoOnibus.faltamQtd} para o ônibus seguir.`}
+              {chamada.posicaoOnibus.meuPonto && <strong className="text-brand-700"> É o seu ponto agora.</strong>}
+            </p>
+          </div>
         </div>
       )}
 

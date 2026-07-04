@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bus, Check, LogOut, Megaphone, ScanLine } from "lucide-react";
+import { Bus, Check, LogOut, Megaphone, ScanLine, MapPin, Users } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import ChamadaAoVivo, { type PontoChamada } from "../portal/ChamadaAoVivo";
@@ -11,7 +11,12 @@ interface Item {
   posicao: number | null; embarcouIda: boolean; embarcouVolta: boolean;
 }
 interface Ponto { ponto: string; itens: Item[] }
-interface Estado { viagem: { id: string; horario: string } | null; rota?: string; pontos: Ponto[]; nfcAtivo?: boolean }
+interface Falta { nome: string; fotoUrl: string | null }
+interface PontoItin { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; faltamQtd: number; faltam: Falta[] }
+interface Estado {
+  viagem: { id: string; horario: string; pontoAtualId: string | null; sentidoAtual: string | null } | null;
+  rota?: string; pontos: Ponto[]; nfcAtivo?: boolean; itinerario?: PontoItin[]; exibirQuemFalta?: string;
+}
 interface Rota { id: string; nome: string }
 
 function iniciais(n: string) { return n.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase(); }
@@ -39,6 +44,7 @@ export default function MonitorScreen() {
   const { data: estado, isLoading } = useQuery({
     queryKey: ["monitor-estado", destinoId],
     enabled: Boolean(destinoId),
+    refetchInterval: 8000,
     queryFn: async (): Promise<Estado> => {
       const { data } = await supabase.functions.invoke("monitor", { body: { action: "estado", destinoId } });
       return (data as Estado) ?? { viagem: null, pontos: [] };
@@ -96,6 +102,16 @@ export default function MonitorScreen() {
       setTimeout(() => { escaneando.current = false; }, 900);
     }
   }
+
+  async function definirPonto(id: string | null) {
+    await supabase.functions.invoke("monitor", { body: { action: "definir-ponto", destinoId, pontoRotaId: id } });
+    qc.invalidateQueries({ queryKey: ["monitor-estado", destinoId] });
+  }
+
+  const itinSentido = (estado?.itinerario ?? []).filter((p) => p.sentido === sentido).sort((a, b) => a.ordem - b.ordem);
+  const pontoAtualId = estado?.viagem?.pontoAtualId ?? null;
+  const pontoAtual = itinSentido.find((p) => p.id === pontoAtualId) ?? null;
+  const exibir = estado?.exibirQuemFalta ?? "QTD_NOME";
 
   const total = (estado?.pontos ?? []).reduce((s, p) => s + p.itens.length, 0);
   const embarcados = (estado?.pontos ?? []).reduce(
@@ -155,6 +171,52 @@ export default function MonitorScreen() {
             <p className="text-sm text-slate-500">
               Saída {estado.viagem.horario} · <strong>{embarcados}/{total}</strong> embarcados ({sentido === "IDA" ? "ida" : "volta"})
             </p>
+
+            {itinSentido.length > 0 && (
+              <div className="space-y-2 rounded-xl bg-white p-3 ring-1 ring-slate-200">
+                <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700"><MapPin className="h-4 w-4 text-brand-600" /> Itinerário — onde o ônibus está</h2>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {itinSentido.map((p, i) => {
+                    const atual = p.id === pontoAtualId;
+                    return (
+                      <button key={p.id} onClick={() => definirPonto(atual ? null : p.id)}
+                        className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ${atual ? "bg-brand-700 text-white ring-brand-700" : "bg-white text-slate-600 ring-slate-300 hover:bg-slate-50"}`}>
+                        <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${atual ? "bg-white/25" : "bg-brand-100 text-brand-700"}`}>{i + 1}</span>
+                        {p.nome}
+                        {p.faltamQtd > 0 && <span className={`rounded-full px-1.5 text-[11px] font-bold ${atual ? "bg-white/25" : "bg-amber-100 text-amber-700"}`}>{p.faltamQtd}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                {pontoAtual ? (
+                  <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">
+                    {pontoAtual.faltamQtd === 0 ? (
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700"><Check className="h-4 w-4" /> Todos embarcaram em {pontoAtual.nome} — pode seguir.</p>
+                    ) : (
+                      <>
+                        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-700"><Users className="h-4 w-4 text-amber-600" /> Faltam {pontoAtual.faltamQtd} em {pontoAtual.nome}</p>
+                        {exibir !== "QTD" && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {pontoAtual.faltam.map((f, k) => (
+                              <span key={k} className="inline-flex items-center gap-1.5 rounded-full bg-white px-2 py-1 text-xs text-slate-600 ring-1 ring-slate-200">
+                                {exibir === "PERFIL" && (
+                                  <span className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full bg-brand-100 text-[9px] font-semibold text-brand-700">
+                                    {f.fotoUrl ? <img src={f.fotoUrl} alt="" className="h-full w-full object-cover" /> : iniciais(f.nome)}
+                                  </span>
+                                )}
+                                {f.nome}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">Toque no ponto onde o ônibus está para acompanhar quem falta.</p>
+                )}
+              </div>
+            )}
 
             {chamada && chamada.pontos.length > 0 && (
               <div className="space-y-2">
