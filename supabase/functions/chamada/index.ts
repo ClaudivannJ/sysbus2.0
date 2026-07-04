@@ -53,9 +53,10 @@ Deno.serve(async (req) => {
   let destinoId = String(b.destinoId ?? "");
   let meuAlunoId: string | null = null;
   let minhaLocalidade: string | null = null;
+  let minhaFaculdade: string | null = null;
   if (!destinoId || !ehGestor) {
-    const { data: aluno } = await db.from("Aluno").select("id, destinoId, localidadeId, usuario:Usuario!inner ( authUserId )").eq("usuario.authUserId", userData.user.id).maybeSingle();
-    if (aluno) { destinoId = destinoId || aluno.destinoId; meuAlunoId = aluno.id; minhaLocalidade = aluno.localidadeId ?? null; }
+    const { data: aluno } = await db.from("Aluno").select("id, destinoId, localidadeId, faculdade, usuario:Usuario!inner ( authUserId )").eq("usuario.authUserId", userData.user.id).maybeSingle();
+    if (aluno) { destinoId = destinoId || aluno.destinoId; meuAlunoId = aluno.id; minhaLocalidade = aluno.localidadeId ?? null; minhaFaculdade = aluno.faculdade ?? null; }
   }
   if (!destinoId) return json({ error: "sem rota" }, 400);
 
@@ -125,5 +126,29 @@ Deno.serve(async (req) => {
   }
 
   const meuReservaId = meuAlunoId ? (reservas.find((r: DB) => r.alunoId === meuAlunoId)?.id ?? null) : null;
-  return json({ viagem: { id: viagem.id, horario: viagem.horario }, intervaloSegundos, pontos, meuReservaId, podeIniciar: ehGestor });
+
+  // posição do ônibus no itinerário (onde está + quantos faltam) — visível ao aluno
+  let posicaoOnibus: { nome: string; sentido: string; faltamQtd: number; meuPonto: boolean } | null = null;
+  const { data: vp } = await db.from("Viagem").select("pontoAtualId").eq("id", viagem.id).maybeSingle();
+  if (vp?.pontoAtualId) {
+    const { data: pr } = await db.from("PontoRota").select("nome, sentido, localidadeId, faculdade").eq("id", vp.pontoAtualId).maybeSingle();
+    if (pr) {
+      const { data: rs } = await db.from("Reserva")
+        .select("vaiIda, vaiVolta, aluno:Aluno ( localidadeId, faculdade ), embarques:Embarque ( sentido )")
+        .eq("viagemId", viagem.id).eq("status", "CONFIRMADA");
+      const temEmb = (r: DB, s: string) => (r.embarques ?? []).some((e: DB) => e.sentido === s);
+      let faltam: DB[] = [];
+      let meuPonto = false;
+      if (pr.sentido === "IDA" && pr.localidadeId) {
+        faltam = (rs ?? []).filter((r: DB) => r.vaiIda && um(r.aluno)?.localidadeId === pr.localidadeId && !temEmb(r, "IDA"));
+        meuPonto = pr.localidadeId === minhaLocalidade;
+      } else if (pr.sentido === "VOLTA" && pr.faculdade) {
+        faltam = (rs ?? []).filter((r: DB) => r.vaiVolta && um(r.aluno)?.faculdade === pr.faculdade && temEmb(r, "IDA") && !temEmb(r, "VOLTA"));
+        meuPonto = pr.faculdade === minhaFaculdade;
+      }
+      posicaoOnibus = { nome: pr.nome, sentido: pr.sentido, faltamQtd: faltam.length, meuPonto };
+    }
+  }
+
+  return json({ viagem: { id: viagem.id, horario: viagem.horario }, intervaloSegundos, pontos, meuReservaId, podeIniciar: ehGestor, posicaoOnibus });
 });

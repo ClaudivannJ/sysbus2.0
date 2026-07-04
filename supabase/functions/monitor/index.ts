@@ -6,6 +6,8 @@
 //                                                      + nfcAtivo (flag de plataforma).
 //  - { action:"embarcar",   reservaId, sentido }    → upsert Embarque.
 //  - { action:"desembarcar",reservaId, sentido }    → remove Embarque.
+//  - { action:"definir-ponto", destinoId, pontoRotaId } → marca em qual ponto o ônibus está
+//                                                      (pontoRotaId null = limpa/encerra).
 //  - { action:"escanear",   destinoId, sentido, texto } → resolve o QR/NFC lido (URL /v/<token>
 //                                                      ou token puro) → reserva de HOJE do aluno
 //                                                      → marca Embarque. Devolve resultado + aluno.
@@ -121,6 +123,28 @@ Deno.serve(async (req) => {
     return json({ resultado: "OK", aluno: info, mensagem: "Embarque registrado." });
   }
 
+  // ---- definir ponto atual do ônibus ----
+  if (action === "definir-ponto") {
+    const destinoId = String(b.destinoId ?? "");
+    if (!destinoId) return json({ error: "destinoId ausente" }, 400);
+    const { data: destino } = await db.from("Destino").select("secretariaId").eq("id", destinoId).maybeSingle();
+    if (!destino) return json({ error: "rota não encontrada" }, 404);
+    if (caller.papel !== "DONO" && destino.secretariaId !== caller.secretariaId) return json({ error: "sem permissão nesta rota" }, 403);
+    const { data: viagem } = await db.from("Viagem").select("id")
+      .eq("destinoId", destinoId).gte("data", inicioDeHoje().toISOString()).lt("data", amanha().toISOString())
+      .limit(1).maybeSingle();
+    if (!viagem) return json({ error: "sem viagem hoje" }, 404);
+    const pontoRotaId = b.pontoRotaId ? String(b.pontoRotaId) : null;
+    let sentidoAtual: string | null = null;
+    if (pontoRotaId) {
+      const { data: pr } = await db.from("PontoRota").select("sentido, destinoId").eq("id", pontoRotaId).maybeSingle();
+      if (!pr || pr.destinoId !== destinoId) return json({ error: "ponto inválido" }, 400);
+      sentidoAtual = pr.sentido;
+    }
+    await db.from("Viagem").update({ pontoAtualId: pontoRotaId, sentidoAtual }).eq("id", viagem.id);
+    return json({ ok: true });
+  }
+
   // ---- embarcar / desembarcar ----
   if (action === "embarcar" || action === "desembarcar") {
     const reservaId = String(b.reservaId ?? "");
@@ -143,7 +167,7 @@ Deno.serve(async (req) => {
   if (!destinoId) return json({ error: "destinoId ausente" }, 400);
 
   // escopo de tenant
-  const { data: destino } = await db.from("Destino").select("secretariaId, nome").eq("id", destinoId).maybeSingle();
+  const { data: destino } = await db.from("Destino").select("secretariaId, nome, exibirQuemFalta").eq("id", destinoId).maybeSingle();
   if (!destino) return json({ error: "rota não encontrada" }, 404);
   const podeVer = caller.papel === "DONO" || destino.secretariaId === caller.secretariaId;
   if (!podeVer) return json({ error: "sem permissão nesta rota" }, 403);
@@ -151,17 +175,36 @@ Deno.serve(async (req) => {
   const { data: cfg } = await db.from("ConfiguracaoPlataforma").select("nfcAtivo").eq("id", "GLOBAL").maybeSingle();
   const nfcAtivo = Boolean(cfg?.nfcAtivo);
 
-  const { data: viagem } = await db.from("Viagem").select("id, horario")
+  const { data: viagem } = await db.from("Viagem").select("id, horario, pontoAtualId, sentidoAtual")
     .eq("destinoId", destinoId).gte("data", inicioDeHoje().toISOString()).lt("data", amanha().toISOString())
     .limit(1).maybeSingle();
-  if (!viagem) return json({ viagem: null, pontos: [], rota: destino.nome, nfcAtivo });
+  if (!viagem) return json({ viagem: null, pontos: [], rota: destino.nome, nfcAtivo, itinerario: [] });
 
   const { data: v } = await db.from("Viagem").select(
     `id, destino:Destino ( onibus:Onibus ( id, nome, capacidade, ativo, localidades:OnibusLocalidade ( localidadeId, prioridade ) ) ),
      reservas:Reserva ( id, alunoId, seq, status, vaiIda, vaiVolta, onibusPreferidoId,
-       aluno:Aluno ( nome, fotoUrl, localidadeId, localidade:Localidade ( nome ) ),
+       aluno:Aluno ( nome, fotoUrl, faculdade, localidadeId, localidade:Localidade ( nome ) ),
        embarques:Embarque ( sentido ) )`,
   ).eq("id", viagem.id).maybeSingle();
+
+  // itinerário configurado (pontos por sentido) + "quem falta" em cada ponto
+  const { data: itinRaw } = await db.from("PontoRota")
+    .select("id, sentido, ordem, nome, localidadeId, faculdade").eq("destinoId", destinoId).order("ordem");
+  const reservasConf = (v.reservas ?? []).filter((r: DB) => r.status === "CONFIRMADA");
+  const temEmb = (r: DB, s: string) => (r.embarques ?? []).some((e: DB) => e.sentido === s);
+  const itinerario = (itinRaw ?? []).map((p: DB) => {
+    let faltantes: DB[] = [];
+    if (p.sentido === "IDA" && p.localidadeId) {
+      faltantes = reservasConf.filter((r: DB) => r.vaiIda && r.aluno?.localidadeId === p.localidadeId && !temEmb(r, "IDA"));
+    } else if (p.sentido === "VOLTA" && p.faculdade) {
+      faltantes = reservasConf.filter((r: DB) => r.vaiVolta && r.aluno?.faculdade === p.faculdade && temEmb(r, "IDA") && !temEmb(r, "VOLTA"));
+    }
+    return {
+      id: p.id, sentido: p.sentido, ordem: p.ordem, nome: p.nome,
+      faltamQtd: faltantes.length,
+      faltam: faltantes.map((r: DB) => ({ nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null })),
+    };
+  });
 
   const onibus = (v.destino?.onibus ?? []).filter((o: DB) => o.ativo);
   const reservas = v.reservas ?? [];
@@ -196,5 +239,9 @@ Deno.serve(async (req) => {
     itens: g.itens.sort((a, b) => (a.onibusNome ?? "").localeCompare(b.onibusNome ?? "") || (a.posicao ?? 0) - (b.posicao ?? 0)),
   })).sort((a, b) => a.ponto.localeCompare(b.ponto));
 
-  return json({ viagem: { id: viagem.id, horario: viagem.horario }, rota: destino.nome, pontos, nfcAtivo });
+  return json({
+    viagem: { id: viagem.id, horario: viagem.horario, pontoAtualId: viagem.pontoAtualId ?? null, sentidoAtual: viagem.sentidoAtual ?? null },
+    rota: destino.nome, pontos, nfcAtivo,
+    itinerario, exibirQuemFalta: destino.exibirQuemFalta ?? "QTD_NOME",
+  });
 });
