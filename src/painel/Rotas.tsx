@@ -144,12 +144,16 @@ function HorariosChamada({ destinoId }: { destinoId: string }) {
     queryKey: ["rota-localidades", destinoId],
     enabled: aberto,
     queryFn: async () => {
-      const { data } = await supabase.from("OnibusLocalidade")
-        .select("localidade:Localidade ( id, nome ), onibus:Onibus!inner ( destinoId )")
-        .eq("onibus.destinoId", destinoId);
+      // Busca localidades vinculadas a esta rota via PontoRota (sentido IDA),
+      // evitando o join em Onibus que falha por RLS para usuários não-gestores.
+      const { data } = await supabase.from("PontoRota")
+        .select("localidadeId, localidade:Localidade ( id, nome )")
+        .eq("destinoId", destinoId)
+        .eq("sentido", "IDA")
+        .not("localidadeId", "is", null);
       const vistos = new Set<string>();
       const out: { id: string; nome: string }[] = [];
-      for (const r of (data ?? []) as { localidade: { id: string; nome: string } | { id: string; nome: string }[] }[]) {
+      for (const r of (data ?? []) as { localidade: { id: string; nome: string } | { id: string; nome: string }[] | null }[]) {
         const l = Array.isArray(r.localidade) ? r.localidade[0] : r.localidade;
         if (l && !vistos.has(l.id)) { vistos.add(l.id); out.push(l); }
       }
@@ -191,7 +195,7 @@ function HorariosChamada({ destinoId }: { destinoId: string }) {
       {!locais || !horarios ? (
         <p className="text-xs text-slate-400">Carregando…</p>
       ) : locais.length === 0 ? (
-        <p className="text-xs text-slate-400">Cadastre ônibus e localidades desta rota (em Frota) para definir os horários.</p>
+        <p className="text-xs text-slate-400">Nenhum ponto de embarque (IDA) configurado no itinerário desta rota. Adicione os pontos em "Configurar itinerário e pontos" abaixo.</p>
       ) : (
         <div className="space-y-2">
           {locais.map((l) => (
