@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Route as RouteIcon, Plus, Check, MapPin, ArrowUp, ArrowDown, Trash2, ChevronDown, Clock } from "lucide-react";
+import { Route as RouteIcon, Plus, Check, MapPin, ArrowUp, ArrowDown, Trash2, ChevronDown, Clock, Activity } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 
@@ -84,10 +84,19 @@ function RotaCard({ rota }: { rota: Rota }) {
     e.preventDefault();
     setSalvando(true);
     const f = new FormData(e.currentTarget);
+    const saida = f.get("horarioSaida") as string;
+    const fecha = f.get("enqueteFecha") as string;
+
+    if (saida && fecha && fecha > saida) {
+      alert(`O horário de fechamento da enquete (${fecha}) não pode ser após o horário de saída da rota (${saida}).`);
+      setSalvando(false);
+      return;
+    }
+
     await supabase.from("Destino").update({
-      horarioSaida: f.get("horarioSaida"),
+      horarioSaida: saida,
       enqueteAbre: (f.get("enqueteAbre") as string) || null,
-      enqueteFecha: (f.get("enqueteFecha") as string) || null,
+      enqueteFecha: fecha || null,
       intervaloChamadaS: Number(f.get("intervaloChamadaS")) || 10,
       diasSemana: dias,
     }).eq("id", rota.id);
@@ -131,6 +140,7 @@ function RotaCard({ rota }: { rota: Rota }) {
 
       <HorariosChamada destinoId={rota.id} />
       <ItinerarioGate destinoId={rota.id} secretariaId={rota.secretariaId} exibirQuemFalta={rota.exibirQuemFalta} />
+      <AnalyticsPonto destinoId={rota.id} />
     </form>
   );
 }
@@ -144,12 +154,16 @@ function HorariosChamada({ destinoId }: { destinoId: string }) {
     queryKey: ["rota-localidades", destinoId],
     enabled: aberto,
     queryFn: async () => {
-      const { data } = await supabase.from("OnibusLocalidade")
-        .select("localidade:Localidade ( id, nome ), onibus:Onibus!inner ( destinoId )")
-        .eq("onibus.destinoId", destinoId);
+      // Busca localidades vinculadas a esta rota via PontoRota (sentido IDA),
+      // evitando o join em Onibus que falha por RLS para usuários não-gestores.
+      const { data } = await supabase.from("PontoRota")
+        .select("localidadeId, localidade:Localidade ( id, nome )")
+        .eq("destinoId", destinoId)
+        .eq("sentido", "IDA")
+        .not("localidadeId", "is", null);
       const vistos = new Set<string>();
       const out: { id: string; nome: string }[] = [];
-      for (const r of (data ?? []) as { localidade: { id: string; nome: string } | { id: string; nome: string }[] }[]) {
+      for (const r of (data ?? []) as { localidade: { id: string; nome: string } | { id: string; nome: string }[] | null }[]) {
         const l = Array.isArray(r.localidade) ? r.localidade[0] : r.localidade;
         if (l && !vistos.has(l.id)) { vistos.add(l.id); out.push(l); }
       }
@@ -191,7 +205,7 @@ function HorariosChamada({ destinoId }: { destinoId: string }) {
       {!locais || !horarios ? (
         <p className="text-xs text-slate-400">Carregando…</p>
       ) : locais.length === 0 ? (
-        <p className="text-xs text-slate-400">Cadastre ônibus e localidades desta rota (em Frota) para definir os horários.</p>
+        <p className="text-xs text-slate-400">Nenhum ponto de embarque (IDA) configurado no itinerário desta rota. Adicione os pontos em "Configurar itinerário e pontos" abaixo.</p>
       ) : (
         <div className="space-y-2">
           {locais.map((l) => (
@@ -224,7 +238,7 @@ function ItinerarioGate(props: { destinoId: string; secretariaId: string | null;
   return <Itinerario {...props} />;
 }
 
-interface Ponto { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; localidadeId: string | null; faculdade: string | null }
+interface Ponto { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; localidadeId: string | null; faculdade: string | null; lat: number | null; lng: number | null; raioMetros: number }
 interface Localidade { id: string; nome: string }
 const LABEL_EXIBIR: Record<string, string> = {
   QTD: "Só a quantidade que falta",
@@ -243,7 +257,7 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
     queryKey: ["pontos-rota", destinoId],
     enabled: aberto,
     queryFn: async () => {
-      const { data } = await supabase.from("PontoRota").select("id,sentido,ordem,nome,localidadeId,faculdade").eq("destinoId", destinoId).order("ordem");
+      const { data } = await supabase.from("PontoRota").select("id,sentido,ordem,nome,localidadeId,faculdade,lat,lng,\"raioMetros\"").eq("destinoId", destinoId).order("ordem");
       return (data as Ponto[]) ?? [];
     },
   });
@@ -291,18 +305,49 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
     qc.invalidateQueries({ queryKey: ["painel-rotas"] });
   }
 
+  async function salvarCoords(id: string, lat: number | null, lng: number | null, raioMetros: number) {
+    await supabase.from("PontoRota").update({ lat, lng, raioMetros }).eq("id", id);
+    recarregar();
+  }
+
   function Lista({ sentido }: { sentido: "IDA" | "VOLTA" }) {
     const lista = daFace(sentido);
+    const [expandido, setExpandido] = useState<string | null>(null);
+
     return (
       <div className="space-y-1.5">
         {lista.length === 0 && <p className="text-xs text-slate-400">Nenhum ponto configurado.</p>}
         {lista.map((p, i) => (
-          <div key={p.id} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 ring-1 ring-slate-200">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-700">{i + 1}</span>
-            <span className="flex-1 truncate text-sm text-slate-700">{p.nome}</span>
-            <button type="button" onClick={() => mover(lista, i, -1)} disabled={i === 0} className="text-slate-400 hover:text-slate-700 disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
-            <button type="button" onClick={() => mover(lista, i, 1)} disabled={i === lista.length - 1} className="text-slate-400 hover:text-slate-700 disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
-            <button type="button" onClick={() => remover(p.id)} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+          <div key={p.id} className="flex flex-col gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 ring-1 ring-slate-200">
+            <div className="flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-700">{i + 1}</span>
+              <span className="flex-1 truncate text-sm text-slate-700">{p.nome}</span>
+              <button type="button" onClick={() => setExpandido(expandido === p.id ? null : p.id)} className="text-brand-600 hover:text-brand-800" title="Configurar GPS"><MapPin className="h-4 w-4" /></button>
+              <button type="button" onClick={() => mover(lista, i, -1)} disabled={i === 0} className="text-slate-400 hover:text-slate-700 disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
+              <button type="button" onClick={() => mover(lista, i, 1)} disabled={i === lista.length - 1} className="text-slate-400 hover:text-slate-700 disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
+              <button type="button" onClick={() => remover(p.id)} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+            </div>
+            
+            {expandido === p.id && (
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  const lat = f.get("lat") ? Number(f.get("lat")) : null;
+                  const lng = f.get("lng") ? Number(f.get("lng")) : null;
+                  const raio = f.get("raioMetros") ? Number(f.get("raioMetros")) : 200;
+                  salvarCoords(p.id, lat, lng, raio);
+                }}
+                className="mt-2 grid grid-cols-3 gap-2 border-t border-slate-200 pt-2"
+              >
+                <label className="text-xs text-slate-500">Lat <input name="lat" type="number" step="any" defaultValue={p.lat ?? ""} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" placeholder="-8.123" /></label>
+                <label className="text-xs text-slate-500">Lng <input name="lng" type="number" step="any" defaultValue={p.lng ?? ""} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" placeholder="-37.123" /></label>
+                <label className="text-xs text-slate-500">Raio (m) <input name="raioMetros" type="number" min={10} defaultValue={p.raioMetros ?? 200} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" /></label>
+                <div className="col-span-3 flex justify-end">
+                  <button type="submit" className="rounded bg-brand-700 px-2 py-1 text-xs text-white hover:bg-brand-800">Salvar GPS</button>
+                </div>
+              </form>
+            )}
           </div>
         ))}
       </div>
@@ -354,6 +399,93 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
           {Object.entries(LABEL_EXIBIR).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </label>
+    </div>
+  );
+}
+
+function AnalyticsPonto({ destinoId }: { destinoId: string }) {
+  const [aberto, setAberto] = useState(false);
+
+  const { data: analytics, isLoading } = useQuery({
+    queryKey: ["analytics-tempo", destinoId],
+    enabled: aberto,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("AnalyticsTempoViagem")
+        .select("*")
+        .eq("destinoId", destinoId)
+        .order("mes", { ascending: false })
+        .order("sentido")
+        .order("ordem");
+      return data ?? [];
+    },
+  });
+
+  if (!aberto) {
+    return (
+      <button type="button" onClick={() => setAberto(true)} className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline">
+        <Activity className="h-4 w-4" /> Relatório de Tempo e Desempenho (GPS)
+      </button>
+    );
+  }
+
+  // Agrupar por mes
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const porMes = (analytics ?? []).reduce((acc: any, row: any) => {
+    const m = row.mes.substring(0, 7); // YYYY-MM
+    if (!acc[m]) acc[m] = { IDA: [], VOLTA: [] };
+    if (acc[m][row.sentido]) acc[m][row.sentido].push(row);
+    return acc;
+  }, {});
+
+  return (
+    <div className="mt-4 space-y-4 rounded-xl bg-slate-50/60 p-4 ring-1 ring-slate-200">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-700"><Activity className="h-4 w-4 text-brand-600" /> Relatório de Tempo (GPS)</p>
+        <button type="button" onClick={() => setAberto(false)} className="text-slate-400 hover:text-slate-700"><ChevronDown className="h-4 w-4 rotate-180" /></button>
+      </div>
+      
+      {isLoading ? (
+        <p className="text-xs text-slate-400">Carregando dados históricos...</p>
+      ) : Object.keys(porMes).length === 0 ? (
+        <p className="text-xs text-slate-500">Nenhum dado de viagem por GPS coletado ainda. O monitor precisa utilizar a navegação.</p>
+      ) : (
+        <div className="space-y-6">
+          {Object.entries(porMes).map(([mes, rotas]: any) => (
+            <div key={mes}>
+              <h3 className="mb-2 font-semibold text-slate-800">Mês: {mes}</h3>
+              
+              {(["IDA", "VOLTA"] as const).map(sentido => rotas[sentido]?.length > 0 && (
+                <div key={sentido} className="mb-4">
+                  <h4 className="mb-2 text-xs font-semibold uppercase text-slate-500">{sentido}</h4>
+                  <div className="overflow-hidden rounded-lg ring-1 ring-slate-200">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-100 text-slate-600">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">Ponto</th>
+                          <th className="px-3 py-2 font-medium">Tempo até aqui</th>
+                          <th className="px-3 py-2 font-medium">Parado</th>
+                          <th className="px-3 py-2 font-medium">Viagens</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 bg-white">
+                        {rotas[sentido].map((p: any) => (
+                          <tr key={p.pontoRotaId}>
+                            <td className="px-3 py-2 font-medium text-slate-800">{p.pontoNome}</td>
+                            <td className="px-3 py-2 text-slate-600">{p.mediaMinutosDeslocamento ? `${Math.round(p.mediaMinutosDeslocamento)} min` : "—"}</td>
+                            <td className="px-3 py-2 text-slate-600">{p.mediaMinutosParado ? `${Math.round(p.mediaMinutosParado)} min` : "< 1 min"}</td>
+                            <td className="px-3 py-2 text-slate-600">{p.amostras}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

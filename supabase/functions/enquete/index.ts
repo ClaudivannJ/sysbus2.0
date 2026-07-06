@@ -30,9 +30,12 @@ const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 interface ItemFila {
   reservaId: string; nome: string; fotoUrl: string | null; localidadeId: string | null;
   localidade: string | null; hora: string; status: "CONFIRMADA" | "ESPERA";
-  onibusNome: string | null; posicao: number | null; transbordo: boolean;
+  onibusNome: string | null;
+  /** posicaoLocalidade (multi-ônibus) ou posicao global (único ônibus) */
+  posicao: number | null;
+  transbordo: boolean;
 }
-interface DadosFila { confirmados: number; emEspera: number; naFila: number; voltam: number; itens: ItemFila[]; }
+interface DadosFila { confirmados: number; emEspera: number; naFila: number; voltam: number; itens: ItemFila[]; umOnibusApenas: boolean; }
 
 // deno-lint-ignore no-explicit-any
 type DB = any;
@@ -61,19 +64,18 @@ async function calcularFila(db: DB, viagemId: string): Promise<DadosFila | null>
     prioridades: Object.fromEntries((o.localidades ?? []).map((l: DB) => [l.localidadeId, l.prioridade])),
   }));
   const resultado = alocarViagem(reservaInputs, onibusInputs);
-
-  const prioridadeDe = (onibusId: string, locId: string) =>
-    onibus.find((x: DB) => x.id === onibusId)?.localidades?.find((l: DB) => l.localidadeId === locId)?.prioridade ?? 1;
+  const { umOnibusApenas } = resultado;
 
   const itens: ItemFila[] = resultado.alocacoes.map((a) => {
     const r: DB = rById.get(a.reservaId)!;
+    // posição exibida: rank sequencial no grupo quando multi-ônibus; global quando único
+    const posicao = umOnibusApenas ? a.posicao : a.posicaoLocalidade;
     return {
       reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null,
       localidadeId: r.aluno?.localidadeId ?? null, localidade: r.aluno?.localidade?.nome ?? null,
       hora: r.criadoEm, status: a.status,
       onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null,
-      posicao: a.posicao,
-      transbordo: a.onibusId ? prioridadeDe(a.onibusId, r.aluno?.localidadeId ?? "") > 1 : false,
+      posicao, transbordo: a.transbordo,
     };
   });
   return {
@@ -81,7 +83,7 @@ async function calcularFila(db: DB, viagemId: string): Promise<DadosFila | null>
     emEspera: itens.filter((i) => i.status === "ESPERA").length,
     naFila: reservas.filter((r: DB) => r.status !== "CANCELADA" && r.vaiIda).length,
     voltam: reservas.filter((r: DB) => r.status !== "CANCELADA" && r.vaiVolta).length,
-    itens,
+    itens, umOnibusApenas,
   };
 }
 
@@ -212,6 +214,7 @@ Deno.serve(async (req) => {
 
   const fila = await calcularFila(db, viagemId);
   if (action === "confirmar" || action === "cancelar") await broadcastFila(fila, viagemId);
+  if (fila && !autorizado) fila.itens = [];
 
   // localidades (pontos de embarque) da rota — p/ o aluno escolher onde embarca
   const { data: locRows } = await db.from("OnibusLocalidade")

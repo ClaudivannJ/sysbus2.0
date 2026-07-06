@@ -1,0 +1,20 @@
+# AI Agent Guidelines - SYSBUS 2.0
+
+You are an AI assistant helping with coding tasks in the SYSBUS 2.0 repository. Follow these strict workflow rules:
+
+## 🚫 CRITICAL: GIT BRANCH RESTRICTIONS
+1. **NEVER make commits, merges, or pushes directly to the `main` branch.**
+2. The `main` branch is protected and contains production-stable code.
+3. All development must be done on the **`desenvolvimento`** branch or on a `feature/*` or `bugfix/*` branch created off `desenvolvimento`.
+4. Always check the current active branch using `git status` or `git branch` before making any file modifications.
+
+## 🛠️ MANDATORY VALIDATION WORKFLOW
+Before declaring any task complete or suggesting code integration:
+1. Run lint checks to ensure style and types are correct:
+   ```bash
+   npm run lint
+   ```
+2. Test any database, seat allocation, or Edge Function logic by running the local simulation scripts:
+   - Run: `node scripts/simular-votos.mjs` (in the `scripts` folder or from root depending on current directory)
+   - Follow up with cleanup: `node scripts/limpar-testes.mjs` to keep the database pristine.
+3. Follow the guidelines in the [DESENVOLVIMENTO.md](DESENVOLVIMENTO.md) file.

@@ -151,6 +151,52 @@ Deno.serve(async (req) => {
     return json({ ok: true });
   }
 
+  // ---- registrar chegada / saída (GPS/Geofencing) ----
+  if (action === "registrar-chegada" || action === "registrar-saida") {
+    const destinoId = String(b.destinoId ?? "");
+    if (!destinoId) return json({ error: "destinoId ausente" }, 400);
+    const pontoRotaId = String(b.pontoRotaId ?? "");
+    if (!pontoRotaId) return json({ error: "pontoRotaId ausente" }, 400);
+    
+    const { data: destino } = await db.from("Destino").select("secretariaId").eq("id", destinoId).maybeSingle();
+    if (!destino) return json({ error: "rota não encontrada" }, 404);
+    if (caller.papel !== "DONO" && destino.secretariaId !== caller.secretariaId) return json({ error: "sem permissão nesta rota" }, 403);
+    
+    const { data: viagem } = await db.from("Viagem").select("id")
+      .eq("destinoId", destinoId).gte("data", inicioDeHoje().toISOString()).lt("data", amanha().toISOString())
+      .limit(1).maybeSingle();
+    if (!viagem) return json({ error: "sem viagem hoje" }, 404);
+
+    if (action === "registrar-chegada") {
+      const distanciaDetectadaM = b.distanciaM ? Number(b.distanciaM) : null;
+      const origem = String(b.origem ?? "GPS");
+      const chegouEm = b.chegouEm ? String(b.chegouEm) : new Date().toISOString();
+      
+      const { data: pr } = await db.from("PontoRota").select("sentido").eq("id", pontoRotaId).maybeSingle();
+      if (pr) await db.from("Viagem").update({ pontoAtualId: pontoRotaId, sentidoAtual: pr.sentido }).eq("id", viagem.id);
+
+      const id = String(b.id ?? crypto.randomUUID());
+      const { error } = await db.from("RegistroPonto").insert({
+        id, viagemId: viagem.id, pontoRotaId, chegouEm, distanciaDetectadaM, origem, fiscal: caller.id
+      });
+      return json({ ok: true, id, error: error?.message }); // Retorna msg se erro de duplicidade p/ debug
+    } else {
+      const id = String(b.id ?? ""); 
+      const saiuEm = b.saiuEm ? String(b.saiuEm) : new Date().toISOString();
+      
+      if (id) {
+        await db.from("RegistroPonto").update({ saiuEm }).eq("id", id);
+      } else {
+        const { data: ult } = await db.from("RegistroPonto")
+          .select("id")
+          .eq("viagemId", viagem.id).eq("pontoRotaId", pontoRotaId).is("saiuEm", null)
+          .order("chegouEm", { ascending: false }).limit(1).maybeSingle();
+        if (ult) await db.from("RegistroPonto").update({ saiuEm }).eq("id", ult.id);
+      }
+      return json({ ok: true });
+    }
+  }
+
   // ---- embarcar / desembarcar ----
   if (action === "embarcar" || action === "desembarcar") {
     const reservaId = String(b.reservaId ?? "");
@@ -196,7 +242,7 @@ Deno.serve(async (req) => {
 
   // itinerário configurado (pontos por sentido) + "quem falta" em cada ponto — só se o módulo estiver ativo
   const { data: itinRaw } = itinerarioAtivo
-    ? await db.from("PontoRota").select("id, sentido, ordem, nome, localidadeId, faculdade").eq("destinoId", destinoId).order("ordem")
+    ? await db.from("PontoRota").select("id, sentido, ordem, nome, localidadeId, faculdade, lat, lng, \"raioMetros\"").eq("destinoId", destinoId).order("ordem")
     : { data: [] as DB[] };
   const reservasConf = (v.reservas ?? []).filter((r: DB) => r.status === "CONFIRMADA");
   const temEmb = (r: DB, s: string) => (r.embarques ?? []).some((e: DB) => e.sentido === s);
@@ -207,10 +253,12 @@ Deno.serve(async (req) => {
     } else if (p.sentido === "VOLTA" && p.faculdade) {
       faltantes = reservasConf.filter((r: DB) => r.vaiVolta && r.aluno?.faculdade === p.faculdade && temEmb(r, "IDA") && !temEmb(r, "VOLTA"));
     }
+    const exibirQuem = destino.exibirQuemFalta ?? "QTD_NOME";
     return {
       id: p.id, sentido: p.sentido, ordem: p.ordem, nome: p.nome,
-      faltamQtd: faltantes.length,
-      faltam: faltantes.map((r: DB) => ({ nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null })),
+      lat: p.lat ?? null, lng: p.lng ?? null, raioMetros: p.raioMetros ?? 200,
+      faltamQtd: exibirQuem === "NAO_EXIBIR" ? 0 : faltantes.length,
+      faltam: exibirQuem === "QTD_NOME" ? faltantes.map((r: DB) => ({ nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null })) : [],
     };
   });
 
@@ -227,6 +275,7 @@ Deno.serve(async (req) => {
     prioridades: Object.fromEntries((o.localidades ?? []).map((l: DB) => [l.localidadeId, l.prioridade])),
   }));
   const aloc = alocarViagem(reservaInputs, onibusInputs);
+  const { umOnibusApenas } = aloc;
 
   // só CONFIRMADA entra na chamada; agrupa por ponto e ordena por ônibus+posição
   const grupos = new Map<string, { ponto: string; itens: DB[] }>();
@@ -236,10 +285,12 @@ Deno.serve(async (req) => {
     let g = grupos.get(key);
     if (!g) { g = { ponto: r.aluno?.localidade?.nome ?? "Sem ponto", itens: [] }; grupos.set(key, g); }
     const emb = (r.embarques ?? []).map((e: DB) => e.sentido);
+    // posição exibida: rank sequencial no grupo (multi-ônibus) ou global (único ônibus)
+    const posicao = umOnibusApenas ? a.posicao : a.posicaoLocalidade;
     g.itens.push({
       reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null,
       onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null,
-      posicao: a.posicao, embarcouIda: emb.includes("IDA"), embarcouVolta: emb.includes("VOLTA"),
+      posicao, embarcouIda: emb.includes("IDA"), embarcouVolta: emb.includes("VOLTA"),
     });
   }
   const pontos = [...grupos.values()].map((g) => ({

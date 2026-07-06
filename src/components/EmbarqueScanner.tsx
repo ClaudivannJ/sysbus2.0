@@ -48,6 +48,14 @@ export default function EmbarqueScanner({
   const emitir = (texto: string) => {
     const t = Date.now();
     if (texto === ultimo.current.texto && t - ultimo.current.t < 2500) return; // ignora releitura imediata
+    
+    // Verificação de segurança (padronização do QRCode)
+    // O QRCode/NFC válido deve conter /v/<jwt> ou ser o próprio JWT (eyJ...)
+    const padrao = texto.match(/\/v\/([^/?#\s]+)/) || texto.match(/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    if (!padrao && !texto.includes('eyJ')) {
+      return; // Ignora localmente se não tiver o padrão, evitando alertas falsos (ex: scanner PIX)
+    }
+
     ultimo.current = { texto, t };
     onTexto(texto);
     if ("vibrate" in navigator) navigator.vibrate?.(60);
