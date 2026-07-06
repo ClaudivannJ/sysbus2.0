@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Route as RouteIcon, Plus, Check, MapPin, ArrowUp, ArrowDown, Trash2, ChevronDown, Clock } from "lucide-react";
+import { Route as RouteIcon, Plus, Check, MapPin, ArrowUp, ArrowDown, Trash2, ChevronDown, Clock, Activity } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 
@@ -131,6 +131,7 @@ function RotaCard({ rota }: { rota: Rota }) {
 
       <HorariosChamada destinoId={rota.id} />
       <ItinerarioGate destinoId={rota.id} secretariaId={rota.secretariaId} exibirQuemFalta={rota.exibirQuemFalta} />
+      <AnalyticsPonto destinoId={rota.id} />
     </form>
   );
 }
@@ -389,6 +390,93 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
           {Object.entries(LABEL_EXIBIR).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </label>
+    </div>
+  );
+}
+
+function AnalyticsPonto({ destinoId }: { destinoId: string }) {
+  const [aberto, setAberto] = useState(false);
+
+  const { data: analytics, isLoading } = useQuery({
+    queryKey: ["analytics-tempo", destinoId],
+    enabled: aberto,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("AnalyticsTempoViagem")
+        .select("*")
+        .eq("destinoId", destinoId)
+        .order("mes", { ascending: false })
+        .order("sentido")
+        .order("ordem");
+      return data ?? [];
+    },
+  });
+
+  if (!aberto) {
+    return (
+      <button type="button" onClick={() => setAberto(true)} className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline">
+        <Activity className="h-4 w-4" /> Relatório de Tempo e Desempenho (GPS)
+      </button>
+    );
+  }
+
+  // Agrupar por mes
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const porMes = (analytics ?? []).reduce((acc: any, row: any) => {
+    const m = row.mes.substring(0, 7); // YYYY-MM
+    if (!acc[m]) acc[m] = { IDA: [], VOLTA: [] };
+    if (acc[m][row.sentido]) acc[m][row.sentido].push(row);
+    return acc;
+  }, {});
+
+  return (
+    <div className="mt-4 space-y-4 rounded-xl bg-slate-50/60 p-4 ring-1 ring-slate-200">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-700"><Activity className="h-4 w-4 text-brand-600" /> Relatório de Tempo (GPS)</p>
+        <button type="button" onClick={() => setAberto(false)} className="text-slate-400 hover:text-slate-700"><ChevronDown className="h-4 w-4 rotate-180" /></button>
+      </div>
+      
+      {isLoading ? (
+        <p className="text-xs text-slate-400">Carregando dados históricos...</p>
+      ) : Object.keys(porMes).length === 0 ? (
+        <p className="text-xs text-slate-500">Nenhum dado de viagem por GPS coletado ainda. O monitor precisa utilizar a navegação.</p>
+      ) : (
+        <div className="space-y-6">
+          {Object.entries(porMes).map(([mes, rotas]: any) => (
+            <div key={mes}>
+              <h3 className="mb-2 font-semibold text-slate-800">Mês: {mes}</h3>
+              
+              {(["IDA", "VOLTA"] as const).map(sentido => rotas[sentido]?.length > 0 && (
+                <div key={sentido} className="mb-4">
+                  <h4 className="mb-2 text-xs font-semibold uppercase text-slate-500">{sentido}</h4>
+                  <div className="overflow-hidden rounded-lg ring-1 ring-slate-200">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-100 text-slate-600">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">Ponto</th>
+                          <th className="px-3 py-2 font-medium">Tempo até aqui</th>
+                          <th className="px-3 py-2 font-medium">Parado</th>
+                          <th className="px-3 py-2 font-medium">Viagens</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 bg-white">
+                        {rotas[sentido].map((p: any) => (
+                          <tr key={p.pontoRotaId}>
+                            <td className="px-3 py-2 font-medium text-slate-800">{p.pontoNome}</td>
+                            <td className="px-3 py-2 text-slate-600">{p.mediaMinutosDeslocamento ? `${Math.round(p.mediaMinutosDeslocamento)} min` : "—"}</td>
+                            <td className="px-3 py-2 text-slate-600">{p.mediaMinutosParado ? `${Math.round(p.mediaMinutosParado)} min` : "< 1 min"}</td>
+                            <td className="px-3 py-2 text-slate-600">{p.amostras}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
