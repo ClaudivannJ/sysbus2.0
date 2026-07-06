@@ -84,10 +84,19 @@ function RotaCard({ rota }: { rota: Rota }) {
     e.preventDefault();
     setSalvando(true);
     const f = new FormData(e.currentTarget);
+    const saida = f.get("horarioSaida") as string;
+    const fecha = f.get("enqueteFecha") as string;
+
+    if (saida && fecha && fecha > saida) {
+      alert(`O horário de fechamento da enquete (${fecha}) não pode ser após o horário de saída da rota (${saida}).`);
+      setSalvando(false);
+      return;
+    }
+
     await supabase.from("Destino").update({
-      horarioSaida: f.get("horarioSaida"),
+      horarioSaida: saida,
       enqueteAbre: (f.get("enqueteAbre") as string) || null,
-      enqueteFecha: (f.get("enqueteFecha") as string) || null,
+      enqueteFecha: fecha || null,
       intervaloChamadaS: Number(f.get("intervaloChamadaS")) || 10,
       diasSemana: dias,
     }).eq("id", rota.id);
