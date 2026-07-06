@@ -212,6 +212,7 @@ Deno.serve(async (req) => {
 
   const fila = await calcularFila(db, viagemId);
   if (action === "confirmar" || action === "cancelar") await broadcastFila(fila, viagemId);
+  if (fila && !autorizado) fila.itens = [];
 
   // localidades (pontos de embarque) da rota — p/ o aluno escolher onde embarca
   const { data: locRows } = await db.from("OnibusLocalidade")

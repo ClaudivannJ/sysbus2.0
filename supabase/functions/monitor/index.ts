@@ -207,10 +207,11 @@ Deno.serve(async (req) => {
     } else if (p.sentido === "VOLTA" && p.faculdade) {
       faltantes = reservasConf.filter((r: DB) => r.vaiVolta && r.aluno?.faculdade === p.faculdade && temEmb(r, "IDA") && !temEmb(r, "VOLTA"));
     }
+    const exibirQuem = destino.exibirQuemFalta ?? "QTD_NOME";
     return {
       id: p.id, sentido: p.sentido, ordem: p.ordem, nome: p.nome,
-      faltamQtd: faltantes.length,
-      faltam: faltantes.map((r: DB) => ({ nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null })),
+      faltamQtd: exibirQuem === "NAO_EXIBIR" ? 0 : faltantes.length,
+      faltam: exibirQuem === "QTD_NOME" ? faltantes.map((r: DB) => ({ nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null })) : [],
     };
   });
 

@@ -1,0 +1,125 @@
+# Relatório de Arquitetura e Análise do SYSBUS 2.0
+
+O **SYSBUS 2.0** é um sistema completo e resiliente para gestão de transporte universitário municipal. Ele atende a múltiplos tenants (Secretarias de Transporte), oferece suporte a operações offline (PWA) de forma robusta e segura, e conta com um sistema de alocação inteligente de vagas, chamadas ao vivo e controle de embarque via QR Code e NFC.
+
+Abaixo, detalhamos os principais pilares de arquitetura, fluxos de dados e padrões adotados no projeto.
+
+---
+
+## 🛠️ Stack Tecnológica
+
+- **Front-end**: React 19 + TypeScript + Vite.
+- **Estilização**: Tailwind CSS v4.
+- **Gerenciamento de Estado & Requisições**: React Query (`@tanstack/react-query`) para cache local e sincronização automática.
+- **Banco de Dados & Autenticação**: Supabase (PostgreSQL, GoTrue para Auth, Realtime para Broadcast de canais).
+- **Backend / Serverless**: Supabase Edge Functions (Deno + TypeScript) contendo toda a lógica de negócios autoritativa e segura.
+- **PWA (Progressive Web App)**: `vite-plugin-pwa` para caching offline do front-end e cache customizado de imagens do Supabase Storage.
+
+---
+
+## 📂 Organização de Diretórios
+
+A estrutura do projeto está organizada de forma modular:
+
+```
+sysbus2.0/
+├── src/
+│   ├── auth/            # Contexto e hooks de autenticação/permissões
+│   ├── components/      # Componentes UI reutilizáveis (ex.: Scanner, Card Flip)
+│   ├── lib/             # Regras de negócios puras, motores de cálculo e utilitários
+│   ├── painel/          # Páginas administrativas (Dashboard, Frota, Alunos, Rotas)
+│   ├── portal/          # Interface do aluno (Reservas, Carteirinha, Documentos)
+│   └── routes/          # Telas de login, cadastro, verificação e definição de senhas
+├── supabase/
+│   ├── functions/       # Edge Functions (Deno) com lógica sensível
+│   └── *.sql            # Scripts SQL para migrações de banco e definições de RLS
+└── package.json         # Dependências do ecossistema Node/Vite
+```
+
+---
+
+## 🏛️ Pilares de Arquitetura
+
+### 1. Isolamento Multi-Tenant
+O projeto migrou para uma arquitetura multi-tenant robusta com base no cadastro de Secretarias de Transporte.
+- **Isolamento de Dados**: Tabelas principais como [Aluno](file:///c:/Users/aluno/Desktop/sysbus2.0/src/painel/Alunos.tsx), `Destino` (Rotas), `Onibus`, `Localidade` e `TipoDocumento` possuem a coluna `secretariaId`.
+- **Row Level Security (RLS)**: O banco de dados reforça o isolamento de tenants. O helper `secretaria_atual_id()` ([mt_01_secretaria_id.sql](file:///c:/Users/aluno/Desktop/sysbus2.0/supabase/mt_01_secretaria_id.sql)) extrai dinamicamente a secretaria associada ao usuário autenticado diretamente no banco de dados, garantindo que usuários da Secretaria A não visualizem nem modifiquem dados da Secretaria B.
+- **Modelo de Usuários**: A tabela `Usuario` define o perfil do usuário na plataforma através do seu `authUserId`. Ela suporta papéis como `DONO` (administrador global da plataforma), `ADMIN` (gestor da secretaria), `FISCAL` (motorista ou monitor do ônibus) e `ALUNO`.
+
+```mermaid
+graph TD
+    Secretaria["Secretaria (Tenant)"]
+    Usuario["Usuario (Dono / Admin / Fiscal / Aluno)"]
+    Aluno["Aluno (Vínculo acadêmico & Rota)"]
+    Destino["Destino (Rotas da Secretaria)"]
+    Onibus["Onibus (Frota da Rota)"]
+    
+    Secretaria --> Usuario
+    Secretaria --> Aluno
+    Secretaria --> Destino
+    Destino --> Onibus
+```
+
+### 2. Motor de Alocação de Vagas (Engine)
+Localizado em [alocacao.ts](file:///c:/Users/aluno/Desktop/sysbus2.0/src/lib/alocacao.ts), este motor é implementado como uma função pura (sem efeito colateral ou dependências externas), facilitando testes unitários e auditoria.
+- **Funcionamento**:
+  1. A fila de reservas ativas é ordenada de forma rigorosa pelo carimbo de data/hora de criação (`seq` ou `ordem`).
+  2. Cada aluno é associado a uma localidade de embarque.
+  3. Cada ônibus atende a um conjunto de localidades com uma **prioridade** configurada (ex.: prioridade 1 = ônibus titular da localidade; prioridade 2+ = transbordo / rota alternativa).
+  4. O algoritmo percorre a fila ordenada e tenta alocar o aluno no ônibus de maior prioridade para sua localidade que ainda possua assentos livres.
+  5. Se o ônibus principal lotar, o aluno transborda automaticamente para a próxima opção com assentos disponíveis. Se todos os ônibus compatíveis lotarem, o aluno é encaminhado para a **Lista de Espera**.
+  6. Caso o aluno tenha definido uma opção manual (`onibusPreferidoId`), o motor respeita a escolha se ainda houver vagas disponíveis no veículo preferido.
+
+### 3. Resiliência Offline & PWA
+Como o transporte universitário frequentemente transita por áreas de baixa conectividade, o SYSBUS adota uma estratégia rígida baseada em **Servidor Autoritativo**.
+- **Service Worker**: Cacheia todo o código estático do app (HTML, JS, CSS, fontes e mídias), garantindo abertura instantânea do aplicativo sem sinal de celular.
+- **Cache de Leitura**: Guarda a última resposta válida da Edge Function no `localStorage` do aparelho. Se o aluno estiver sem internet, o portal exibe o último estado salvo com um banner informativo ([offline.ts](file:///c:/Users/aluno/Desktop/sysbus2.0/src/lib/offline.ts)).
+- **Queuing de Escrita (Votos)**: Se o aluno confirmar presença ou cancelar a reserva enquanto estiver offline:
+  1. O app atualiza a interface localmente de forma otimista.
+  2. Salva a ação pretendida no cache de pendências.
+  3. Assim que a conectividade é restabelecida, o voto é disparado para a Edge Function.
+  4. **Segurança contra trapaça**: Para evitar adulteração do relógio do dispositivo para furar a fila, a posição definitiva do aluno na fila de assentos é decidida apenas no momento em que a requisição **chega** ao servidor (ordenação por `seq` atômico gerado na tabela `Reserva`).
+
+### 4. Validação de Embarque (QR & NFC)
+O monitor do ônibus faz o controle de embarque em tempo real utilizando leitura óptica ou aproximação física ([MonitorScreen.tsx](file:///c:/Users/aluno/Desktop/sysbus2.0/src/painel/MonitorScreen.tsx)).
+- **QR Code Assinado**: A carteirinha digital do aluno exibe um QR Code que encapsula um token JWT assinado criptograficamente com uma chave secreta (`AUTH_SECRET`). O token contém o ID da carteirinha (`sub`) e a versão atualizada da assinatura.
+- **Tags NFC**: Se ativado globalmente pelo Dono da plataforma, o aluno pode aproximar uma tag NFC regravável no celular para gravar o mesmo token assinado ([Carteirinha.tsx](file:///c:/Users/aluno/Desktop/sysbus2.0/src/portal/Carteirinha.tsx)). O monitor pode ler tanto o QR Code quanto aproximar a tag NFC no seu aparelho.
+- **Edge Function Segura**: A função [monitor/index.ts](file:///c:/Users/aluno/Desktop/sysbus2.0/supabase/functions/monitor/index.ts) descriptografa o JWT, verifica se a versão do token coincide com o registro atualizado no banco (invalidando capturas de tela antigas / QR Codes obsoletos), confere a validade da autorização semestral do aluno e marca o embarque no sentido atual (IDA ou VOLTA).
+
+```mermaid
+sequenceDiagram
+    actor Aluno
+    actor Monitor
+    participant Server as Edge Function (Supabase)
+    
+    Aluno->>Monitor: Apresenta QR Code ou aproxima Tag NFC
+    Monitor->>Monitor: Lê dados do Token JWT assinado
+    Monitor->>Server: Envia Token + Sentido (IDA/VOLTA) + Rota
+    Note over Server: Valida assinatura do JWT com AUTH_SECRET<br/>Compara versão do token com Banco<br/>Verifica validade semestral e rota do aluno
+    alt Validação com sucesso
+        Server->>Monitor: Retorna confirmação ("Embarque Registrado") + Nome e Foto
+    else Token inválido ou desatualizado
+        Server->>Monitor: Retorna erro ("Carteirinha desatualizada")
+    end
+```
+
+### 5. Sincronização em Tempo Real (Realtime Broadcast)
+- **Fila Dinâmica**: Ao invés de realizar requisições contínuas ao banco de dados (polling), o aplicativo se inscreve em um canal de tempo real utilizando Supabase Realtime Broadcast (`fila:<viagemId>`).
+- **Fan-Out de Baixa Latência**: Sempre que um aluno confirma presença, desiste da vaga ou um monitor realiza um check-in, a Edge Function `enquete` recalculas as posições de assentos e transmite as atualizações para o canal. O navegador do aluno escuta as transmissões e atualiza a interface instantaneamente sem gerar carga no banco de dados.
+
+### 6. Ecossistema de Edge Functions (Deno)
+O SYSBUS 2.0 delega tarefas cruciais de segurança para funções Deno Edge de forma a não expor lógica confidencial na web:
+- `enquete`: Controla abertura/fechamento das janelas de votação diárias com base nas configurações da rota, resolve e materializa viagens e reservas.
+- `monitor`: Gerencia a validação de embarques via scanner e a telemetria do ponto atual do ônibus.
+- `chamada`: Controla a lista de presença e horários de partida por ponto de embarque.
+- `cadastro-aluno` / `login-aluno` / `perfil-aluno`: Lógica dedicada às contas de estudantes e vinculação de documentos de matrícula.
+- `avaliar-renovacao`: Automação da análise de elegibilidade de renovação de cotas de transporte semestrais.
+- `salvar-template` / `verificar-carteirinha`: Geração e manutenção de layouts dinâmicos e exportação em PDF.
+
+---
+
+## 📈 Próximos Passos de Evolução
+
+1. **Testes Unitários Automatizados**: Recomenda-se a criação de suítes de testes para o motor de alocação ([alocacao.ts](file:///c:/Users/aluno/Desktop/sysbus2.0/src/lib/alocacao.ts)) e o manipulador de datas e fusos horários ([tempo.ts](file:///c:/Users/aluno/Desktop/sysbus2.0/src/lib/tempo.ts)).
+2. **Controle Fino de Transbordo**: Adicionar suporte a restrições adicionais de transbordo configuráveis pelo painel administrativo para rotas complexas.
+3. **Auditoria Geral de RLS**: Garantir cobertura de políticas RLS em todas as tabelas menores criadas na evolução do sistema para manter o isolamento multi-tenant absoluto.
