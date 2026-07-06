@@ -43,12 +43,13 @@ async function calcularFila(db: DB, viagemId: string): Promise<DadosFila | null>
   const reservaInputs: ReservaInput[] = ordenadas.map((r: DB, i: number) => ({ id: r.id, alunoId: r.alunoId, localidadeId: r.aluno?.localidadeId ?? "", ordem: i + 1, onibusPreferidoId: r.onibusPreferidoId, status: r.status }));
   const onibusInputs = onibus.map((o: DB) => ({ id: o.id, nome: o.nome, capacidade: o.capacidade, prioridades: Object.fromEntries((o.localidades ?? []).map((l: DB) => [l.localidadeId, l.prioridade])) }));
   const res = alocarViagem(reservaInputs, onibusInputs);
-  const prioridadeDe = (oid: string, loc: string) => onibus.find((x: DB) => x.id === oid)?.localidades?.find((l: DB) => l.localidadeId === loc)?.prioridade ?? 1;
+  const { umOnibusApenas } = res;
   const itens: ItemFila[] = res.alocacoes.map((a) => {
     const r: DB = rById.get(a.reservaId);
-    return { reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null, localidadeId: r.aluno?.localidadeId ?? null, localidade: r.aluno?.localidade?.nome ?? null, hora: r.criadoEm, status: a.status, onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null, posicao: a.posicao, transbordo: a.onibusId ? prioridadeDe(a.onibusId, r.aluno?.localidadeId ?? "") > 1 : false };
+    const posicao = umOnibusApenas ? a.posicao : a.posicaoLocalidade;
+    return { reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null, localidadeId: r.aluno?.localidadeId ?? null, localidade: r.aluno?.localidade?.nome ?? null, hora: r.criadoEm, status: a.status, onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null, posicao, transbordo: a.transbordo };
   });
-  return { confirmados: itens.filter((i) => i.status === "CONFIRMADA").length, emEspera: itens.filter((i) => i.status === "ESPERA").length, naFila: reservas.filter((r: DB) => r.status !== "CANCELADA" && r.vaiIda).length, voltam: reservas.filter((r: DB) => r.status !== "CANCELADA" && r.vaiVolta).length, itens };
+  return { confirmados: itens.filter((i) => i.status === "CONFIRMADA").length, emEspera: itens.filter((i) => i.status === "ESPERA").length, naFila: reservas.filter((r: DB) => r.status !== "CANCELADA" && r.vaiIda).length, voltam: reservas.filter((r: DB) => r.status !== "CANCELADA" && r.vaiVolta).length, itens, umOnibusApenas };
 }
 
 async function broadcast(fila: DadosFila | null, viagemId: string) {

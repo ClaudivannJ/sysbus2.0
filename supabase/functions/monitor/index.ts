@@ -275,6 +275,7 @@ Deno.serve(async (req) => {
     prioridades: Object.fromEntries((o.localidades ?? []).map((l: DB) => [l.localidadeId, l.prioridade])),
   }));
   const aloc = alocarViagem(reservaInputs, onibusInputs);
+  const { umOnibusApenas } = aloc;
 
   // só CONFIRMADA entra na chamada; agrupa por ponto e ordena por ônibus+posição
   const grupos = new Map<string, { ponto: string; itens: DB[] }>();
@@ -284,10 +285,12 @@ Deno.serve(async (req) => {
     let g = grupos.get(key);
     if (!g) { g = { ponto: r.aluno?.localidade?.nome ?? "Sem ponto", itens: [] }; grupos.set(key, g); }
     const emb = (r.embarques ?? []).map((e: DB) => e.sentido);
+    // posição exibida: rank sequencial no grupo (multi-ônibus) ou global (único ônibus)
+    const posicao = umOnibusApenas ? a.posicao : a.posicaoLocalidade;
     g.itens.push({
       reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null,
       onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null,
-      posicao: a.posicao, embarcouIda: emb.includes("IDA"), embarcouVolta: emb.includes("VOLTA"),
+      posicao, embarcouIda: emb.includes("IDA"), embarcouVolta: emb.includes("VOLTA"),
     });
   }
   const pontos = [...grupos.values()].map((g) => ({

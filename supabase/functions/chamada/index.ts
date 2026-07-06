@@ -100,27 +100,42 @@ Deno.serve(async (req) => {
   }));
   const onibusInputs = onibus.map((o: DB) => ({ id: o.id, nome: o.nome, capacidade: o.capacidade, prioridades: Object.fromEntries((o.localidades ?? []).map((l: DB) => [l.localidadeId, l.prioridade])) }));
   const aloc = alocarViagem(reservaInputs, onibusInputs);
+  const { umOnibusApenas } = aloc;
 
   // horário da chamada POR PONTO (config da secretaria) → cada embarque inicia sozinho no seu horário
   const { data: horRows } = await db.from("HorarioChamada").select("localidadeId, horario").eq("destinoId", destinoId);
   const horPorLoc = new Map<string, string>((horRows ?? []).map((h: DB) => [h.localidadeId, h.horario]));
 
-  // agrupa CONFIRMADOS por ponto de embarque; dentro do ponto, ordem de voto (posição da fila)
-  const grupos = new Map<string, { ponto: string; itens: DB[] }>();
-  for (const a of aloc.alocacoes.filter((x) => x.status === "CONFIRMADA")) {
-    const r: DB = rById.get(a.reservaId);
-    const key = r.aluno?.localidadeId ?? "__sem__";
-    let g = grupos.get(key);
-    if (!g) { g = { ponto: r.aluno?.localidade?.nome ?? "Sem ponto", itens: [] }; grupos.set(key, g); }
-    g.itens.push({ reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null, onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null, posicao: a.posicao });
+  let pontos: { localidadeId: string; ponto: string; chamadaEmISO: string; ordem: DB[] }[];
+
+  if (umOnibusApenas) {
+    // Único ônibus: lista global ordenada por seq (posicao global = cadeira 1..n)
+    // Todos ficam numa única chamada, sem agrupamento por ponto de embarque.
+    const itensGlobal = aloc.alocacoes
+      .filter((a) => a.status === "CONFIRMADA")
+      .sort((a, b) => a.ordem - b.ordem)
+      .map((a) => {
+        const r: DB = rById.get(a.reservaId);
+        return { reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null, onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null, posicao: a.posicao };
+      });
+    pontos = [{ localidadeId: "__global__", ponto: "Chamada geral", chamadaEmISO: viagem.chamadaIniciadaEm ?? inicioPadrao, ordem: itensGlobal }];
+  } else {
+    // Múltiplos ônibus: agrupa por ponto de embarque, posição exibida = posicaoLocalidade
+    const grupos = new Map<string, { ponto: string; itens: DB[] }>();
+    for (const a of aloc.alocacoes.filter((x) => x.status === "CONFIRMADA")) {
+      const r: DB = rById.get(a.reservaId);
+      const key = r.aluno?.localidadeId ?? "__sem__";
+      let g = grupos.get(key);
+      if (!g) { g = { ponto: r.aluno?.localidade?.nome ?? "Sem ponto", itens: [] }; grupos.set(key, g); }
+      g.itens.push({ reservaId: a.reservaId, nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null, onibusNome: a.onibusId ? (onibus.find((o: DB) => o.id === a.onibusId)?.nome ?? null) : null, posicao: a.posicaoLocalidade });
+    }
+    pontos = [...grupos.entries()].map(([localidadeId, g]) => {
+      const horaCfg = horPorLoc.get(localidadeId);
+      const inicioPonto = viagem.chamadaIniciadaEm
+        ?? (horaCfg ? horaParaHoje(horaCfg)?.toISOString() ?? inicioPadrao : inicioPadrao);
+      return { localidadeId, ponto: g.ponto, chamadaEmISO: inicioPonto, ordem: g.itens };
+    }).sort((a, b) => a.ponto.localeCompare(b.ponto));
   }
-  let pontos = [...grupos.entries()].map(([localidadeId, g]) => {
-    // início do ponto: override do monitor (iniciar agora) → senão horário configurado → senão padrão
-    const horaCfg = horPorLoc.get(localidadeId);
-    const inicioPonto = viagem.chamadaIniciadaEm
-      ?? (horaCfg ? horaParaHoje(horaCfg)?.toISOString() ?? inicioPadrao : inicioPadrao);
-    return { localidadeId, ponto: g.ponto, chamadaEmISO: inicioPonto, ordem: g.itens };
-  }).sort((a, b) => a.ponto.localeCompare(b.ponto));
 
   // ALUNO vê só a chamada do SEU ponto de embarque; gestor/monitor vê todos.
   if (meuAlunoId && !ehGestor && minhaLocalidade) {
