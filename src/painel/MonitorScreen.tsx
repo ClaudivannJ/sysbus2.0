@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bus, Check, LogOut, Megaphone, ScanLine, MapPin, Users } from "lucide-react";
+import { Bus, Check, LogOut, Megaphone, ScanLine, MapPin, Users, Navigation } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import ChamadaAoVivo, { type PontoChamada } from "../portal/ChamadaAoVivo";
 import EmbarqueScanner, { type ResultadoScan } from "../components/EmbarqueScanner";
+import { useGeofencing } from "../carteirinha/useGeofencing";
 
 interface Item {
   reservaId: string; nome: string; fotoUrl: string | null; onibusNome: string | null;
@@ -12,7 +13,7 @@ interface Item {
 }
 interface Ponto { ponto: string; itens: Item[] }
 interface Falta { nome: string; fotoUrl: string | null }
-interface PontoItin { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; faltamQtd: number; faltam: Falta[] }
+interface PontoItin { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; faltamQtd: number; faltam: Falta[]; lat: number | null; lng: number | null; raioMetros: number }
 interface Estado {
   viagem: { id: string; horario: string; pontoAtualId: string | null; sentidoAtual: string | null } | null;
   rota?: string; pontos: Ponto[]; nfcAtivo?: boolean; itinerario?: PontoItin[]; exibirQuemFalta?: string;
@@ -22,7 +23,7 @@ interface Rota { id: string; nome: string }
 function iniciais(n: string) { return n.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase(); }
 
 export default function MonitorScreen() {
-  const { perfil, sair } = useAuth();
+  const { perfil, sair, session } = useAuth();
   const qc = useQueryClient();
   const [destinoId, setDestinoId] = useState("");
   const [sentido, setSentido] = useState<"IDA" | "VOLTA">("IDA");
@@ -128,6 +129,13 @@ export default function MonitorScreen() {
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   })();
 
+  const pontosGeo = useMemo(() => {
+    return itinSentido.map(p => ({
+      id: p.id, lat: p.lat, lng: p.lng, raioMetros: p.raioMetros, nome: p.nome
+    }));
+  }, [itinSentido]);
+  const geo = useGeofencing(destinoId, pontosGeo, session?.access_token ?? null);
+
   return (
     <div className="mx-auto flex min-h-screen max-w-lg flex-col bg-slate-50">
       <header className="flex items-center justify-between bg-brand-900 px-4 py-3">
@@ -152,7 +160,13 @@ export default function MonitorScreen() {
               {s === "IDA" ? "Ida" : "Volta"}
             </button>
           ))}
+          <button onClick={() => geo.setAtivo(!geo.ativo)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium ring-1 transition-colors ${geo.ativo ? "bg-emerald-600 text-white ring-emerald-700 hover:bg-emerald-700" : "bg-white text-slate-600 ring-slate-300 hover:bg-slate-50"}`}>
+            <Navigation className={`h-4 w-4 ${geo.ativo ? "animate-pulse" : ""}`} /> GPS
+          </button>
         </div>
+        {geo.erro && <p className="text-xs text-red-500">Erro no GPS: {geo.erro}</p>}
+        {geo.filaPendencias > 0 && <p className="text-xs text-amber-600">Sincronizando {geo.filaPendencias} registro(s)...</p>}
         {estado?.viagem && (
           <button onClick={() => { setFeedback(null); setScannerAberto(true); }}
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-700 py-2.5 text-sm font-semibold text-white hover:bg-brand-800">

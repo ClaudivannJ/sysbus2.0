@@ -242,7 +242,7 @@ Deno.serve(async (req) => {
 
   // itinerário configurado (pontos por sentido) + "quem falta" em cada ponto — só se o módulo estiver ativo
   const { data: itinRaw } = itinerarioAtivo
-    ? await db.from("PontoRota").select("id, sentido, ordem, nome, localidadeId, faculdade").eq("destinoId", destinoId).order("ordem")
+    ? await db.from("PontoRota").select("id, sentido, ordem, nome, localidadeId, faculdade, lat, lng, \"raioMetros\"").eq("destinoId", destinoId).order("ordem")
     : { data: [] as DB[] };
   const reservasConf = (v.reservas ?? []).filter((r: DB) => r.status === "CONFIRMADA");
   const temEmb = (r: DB, s: string) => (r.embarques ?? []).some((e: DB) => e.sentido === s);
@@ -256,6 +256,7 @@ Deno.serve(async (req) => {
     const exibirQuem = destino.exibirQuemFalta ?? "QTD_NOME";
     return {
       id: p.id, sentido: p.sentido, ordem: p.ordem, nome: p.nome,
+      lat: p.lat ?? null, lng: p.lng ?? null, raioMetros: p.raioMetros ?? 200,
       faltamQtd: exibirQuem === "NAO_EXIBIR" ? 0 : faltantes.length,
       faltam: exibirQuem === "QTD_NOME" ? faltantes.map((r: DB) => ({ nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null })) : [],
     };
