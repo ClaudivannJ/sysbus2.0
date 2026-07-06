@@ -228,7 +228,7 @@ function ItinerarioGate(props: { destinoId: string; secretariaId: string | null;
   return <Itinerario {...props} />;
 }
 
-interface Ponto { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; localidadeId: string | null; faculdade: string | null }
+interface Ponto { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; localidadeId: string | null; faculdade: string | null; lat: number | null; lng: number | null; raioMetros: number }
 interface Localidade { id: string; nome: string }
 const LABEL_EXIBIR: Record<string, string> = {
   QTD: "Só a quantidade que falta",
@@ -247,7 +247,7 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
     queryKey: ["pontos-rota", destinoId],
     enabled: aberto,
     queryFn: async () => {
-      const { data } = await supabase.from("PontoRota").select("id,sentido,ordem,nome,localidadeId,faculdade").eq("destinoId", destinoId).order("ordem");
+      const { data } = await supabase.from("PontoRota").select("id,sentido,ordem,nome,localidadeId,faculdade,lat,lng,\"raioMetros\"").eq("destinoId", destinoId).order("ordem");
       return (data as Ponto[]) ?? [];
     },
   });
@@ -295,18 +295,49 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
     qc.invalidateQueries({ queryKey: ["painel-rotas"] });
   }
 
+  async function salvarCoords(id: string, lat: number | null, lng: number | null, raioMetros: number) {
+    await supabase.from("PontoRota").update({ lat, lng, raioMetros }).eq("id", id);
+    recarregar();
+  }
+
   function Lista({ sentido }: { sentido: "IDA" | "VOLTA" }) {
     const lista = daFace(sentido);
+    const [expandido, setExpandido] = useState<string | null>(null);
+
     return (
       <div className="space-y-1.5">
         {lista.length === 0 && <p className="text-xs text-slate-400">Nenhum ponto configurado.</p>}
         {lista.map((p, i) => (
-          <div key={p.id} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 ring-1 ring-slate-200">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-700">{i + 1}</span>
-            <span className="flex-1 truncate text-sm text-slate-700">{p.nome}</span>
-            <button type="button" onClick={() => mover(lista, i, -1)} disabled={i === 0} className="text-slate-400 hover:text-slate-700 disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
-            <button type="button" onClick={() => mover(lista, i, 1)} disabled={i === lista.length - 1} className="text-slate-400 hover:text-slate-700 disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
-            <button type="button" onClick={() => remover(p.id)} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+          <div key={p.id} className="flex flex-col gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 ring-1 ring-slate-200">
+            <div className="flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-700">{i + 1}</span>
+              <span className="flex-1 truncate text-sm text-slate-700">{p.nome}</span>
+              <button type="button" onClick={() => setExpandido(expandido === p.id ? null : p.id)} className="text-brand-600 hover:text-brand-800" title="Configurar GPS"><MapPin className="h-4 w-4" /></button>
+              <button type="button" onClick={() => mover(lista, i, -1)} disabled={i === 0} className="text-slate-400 hover:text-slate-700 disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
+              <button type="button" onClick={() => mover(lista, i, 1)} disabled={i === lista.length - 1} className="text-slate-400 hover:text-slate-700 disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
+              <button type="button" onClick={() => remover(p.id)} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+            </div>
+            
+            {expandido === p.id && (
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  const lat = f.get("lat") ? Number(f.get("lat")) : null;
+                  const lng = f.get("lng") ? Number(f.get("lng")) : null;
+                  const raio = f.get("raioMetros") ? Number(f.get("raioMetros")) : 200;
+                  salvarCoords(p.id, lat, lng, raio);
+                }}
+                className="mt-2 grid grid-cols-3 gap-2 border-t border-slate-200 pt-2"
+              >
+                <label className="text-xs text-slate-500">Lat <input name="lat" type="number" step="any" defaultValue={p.lat ?? ""} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" placeholder="-8.123" /></label>
+                <label className="text-xs text-slate-500">Lng <input name="lng" type="number" step="any" defaultValue={p.lng ?? ""} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" placeholder="-37.123" /></label>
+                <label className="text-xs text-slate-500">Raio (m) <input name="raioMetros" type="number" min={10} defaultValue={p.raioMetros ?? 200} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" /></label>
+                <div className="col-span-3 flex justify-end">
+                  <button type="submit" className="rounded bg-brand-700 px-2 py-1 text-xs text-white hover:bg-brand-800">Salvar GPS</button>
+                </div>
+              </form>
+            )}
           </div>
         ))}
       </div>

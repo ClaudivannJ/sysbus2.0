@@ -151,6 +151,52 @@ Deno.serve(async (req) => {
     return json({ ok: true });
   }
 
+  // ---- registrar chegada / saída (GPS/Geofencing) ----
+  if (action === "registrar-chegada" || action === "registrar-saida") {
+    const destinoId = String(b.destinoId ?? "");
+    if (!destinoId) return json({ error: "destinoId ausente" }, 400);
+    const pontoRotaId = String(b.pontoRotaId ?? "");
+    if (!pontoRotaId) return json({ error: "pontoRotaId ausente" }, 400);
+    
+    const { data: destino } = await db.from("Destino").select("secretariaId").eq("id", destinoId).maybeSingle();
+    if (!destino) return json({ error: "rota não encontrada" }, 404);
+    if (caller.papel !== "DONO" && destino.secretariaId !== caller.secretariaId) return json({ error: "sem permissão nesta rota" }, 403);
+    
+    const { data: viagem } = await db.from("Viagem").select("id")
+      .eq("destinoId", destinoId).gte("data", inicioDeHoje().toISOString()).lt("data", amanha().toISOString())
+      .limit(1).maybeSingle();
+    if (!viagem) return json({ error: "sem viagem hoje" }, 404);
+
+    if (action === "registrar-chegada") {
+      const distanciaDetectadaM = b.distanciaM ? Number(b.distanciaM) : null;
+      const origem = String(b.origem ?? "GPS");
+      const chegouEm = b.chegouEm ? String(b.chegouEm) : new Date().toISOString();
+      
+      const { data: pr } = await db.from("PontoRota").select("sentido").eq("id", pontoRotaId).maybeSingle();
+      if (pr) await db.from("Viagem").update({ pontoAtualId: pontoRotaId, sentidoAtual: pr.sentido }).eq("id", viagem.id);
+
+      const id = String(b.id ?? crypto.randomUUID());
+      const { error } = await db.from("RegistroPonto").insert({
+        id, viagemId: viagem.id, pontoRotaId, chegouEm, distanciaDetectadaM, origem, fiscal: caller.id
+      });
+      return json({ ok: true, id, error: error?.message }); // Retorna msg se erro de duplicidade p/ debug
+    } else {
+      const id = String(b.id ?? ""); 
+      const saiuEm = b.saiuEm ? String(b.saiuEm) : new Date().toISOString();
+      
+      if (id) {
+        await db.from("RegistroPonto").update({ saiuEm }).eq("id", id);
+      } else {
+        const { data: ult } = await db.from("RegistroPonto")
+          .select("id")
+          .eq("viagemId", viagem.id).eq("pontoRotaId", pontoRotaId).is("saiuEm", null)
+          .order("chegouEm", { ascending: false }).limit(1).maybeSingle();
+        if (ult) await db.from("RegistroPonto").update({ saiuEm }).eq("id", ult.id);
+      }
+      return json({ ok: true });
+    }
+  }
+
   // ---- embarcar / desembarcar ----
   if (action === "embarcar" || action === "desembarcar") {
     const reservaId = String(b.reservaId ?? "");
