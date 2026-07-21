@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bus } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 export default function Login() {
@@ -47,13 +46,8 @@ export default function Login() {
     <main className="grid min-h-screen lg:grid-cols-2">
       <div className="hidden flex-col justify-between bg-brand-800 p-12 text-white lg:flex">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/10">
-            <Bus className="h-6 w-6" />
-          </div>
-          <div className="leading-tight">
-            <p className="font-bold">SYSBUS</p>
-            <p className="text-xs text-slate-400">Operação do Transporte Universitário</p>
-          </div>
+          <img src="/sysbus-logo.png" alt="SYSBUS" className="h-12 w-auto object-contain rounded-xl" />
+          <span className="text-xs text-slate-400">· Transporte Universitário</span>
         </div>
         <div>
           <h2 className="text-3xl font-bold leading-snug">

@@ -62,11 +62,8 @@ export default function PainelLayout() {
       >
         <div className="flex items-center justify-between px-5 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 text-white"><Bus className="h-5 w-5" /></div>
-            <div className="leading-tight">
-              <p className="text-sm font-bold text-white">SYSBUS</p>
-              <p className="text-[11px] text-slate-400">Secretaria</p>
-            </div>
+            <img src="/sysbus-logo.png" alt="SYSBUS" className="h-9 w-auto object-contain rounded-lg" />
+            <span className="text-xs font-medium text-slate-400">· Secretaria</span>
           </div>
           <button onClick={() => setAberto(false)} className="text-slate-400 hover:text-white lg:hidden"><X className="h-5 w-5" /></button>
         </div>

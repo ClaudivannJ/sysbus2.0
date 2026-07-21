@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Plus, Check, LogOut, UserCog, Nfc, MapPin } from "lucide-react";
+import { Plus, Check, LogOut, UserCog, Nfc, MapPin } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 
@@ -23,11 +23,8 @@ export default function DonoScreen() {
     <div className="mx-auto min-h-screen max-w-3xl bg-slate-50">
       <header className="flex items-center justify-between bg-brand-900 px-4 py-3">
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-800 text-white"><Building2 className="h-5 w-5" /></div>
-          <div className="leading-tight">
-            <p className="text-sm font-bold text-white">SYSBUS · Plataforma</p>
-            <p className="text-[11px] text-slate-300">{perfil?.nome}</p>
-          </div>
+          <img src="/sysbus-logo.png" alt="SYSBUS" className="h-8 w-auto object-contain rounded-lg" />
+          <span className="text-xs font-medium text-slate-300">· Plataforma ({perfil?.nome})</span>
         </div>
         <button onClick={() => sair()} className="inline-flex items-center gap-1 text-sm text-slate-300"><LogOut className="h-4 w-4" /> Sair</button>
       </header>

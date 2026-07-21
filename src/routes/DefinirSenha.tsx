@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bus, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 export default function DefinirSenha() {
@@ -54,12 +54,10 @@ export default function DefinirSenha() {
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-800 text-white">
-            <Bus className="h-5 w-5" />
-          </div>
+          <img src="/sysbus-logo.png" alt="SYSBUS" className="h-10 w-auto object-contain rounded-xl" />
           <div className="leading-tight">
             <p className="font-bold text-slate-900">Ativar acesso</p>
-            <p className="text-xs text-slate-500">SYSBUS — transporte universitário</p>
+            <p className="text-xs text-slate-500">Transporte universitário</p>
           </div>
         </div>
 

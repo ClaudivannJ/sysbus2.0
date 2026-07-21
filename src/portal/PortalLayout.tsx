@@ -1,6 +1,6 @@
 import { NavLink, Outlet, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, CalendarCheck, FileText, User, LogOut, ScanLine, WifiOff, Bus } from "lucide-react";
+import { CreditCard, CalendarCheck, FileText, User, LogOut, ScanLine, WifiOff } from "lucide-react";
 import { useAuth } from "../auth/AuthProvider";
 import { useOnline } from "../lib/offline";
 import { supabase } from "../lib/supabase";
@@ -39,13 +39,14 @@ export default function PortalLayout() {
           )}
         </div>
 
-        <div className="flex flex-col items-center justify-self-center">
-          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-white/10 ring-1 ring-white/10">
-            {sec?.logoUrl
-              ? <img src={sec.logoUrl} alt={sec?.nome ?? ""} className="h-full w-full object-contain" />
-              : <Bus className="h-5 w-5 text-white/90" />}
+        <div className="flex items-center justify-center justify-self-center">
+          <div className="flex items-center justify-center overflow-hidden">
+            {sec?.logoUrl ? (
+              <img src={sec.logoUrl} alt={sec?.nome ?? ""} className="h-9 w-auto object-contain" />
+            ) : (
+              <img src="/sysbus-logo.png" alt="SYSBUS" className="h-10 w-auto object-contain rounded-xl" />
+            )}
           </div>
-          <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">SYSBUS</span>
         </div>
 
         <div className="flex items-center gap-1 justify-self-end">
