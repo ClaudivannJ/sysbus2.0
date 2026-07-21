@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bus } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import Dropzone from "../components/Dropzone";
 
@@ -91,12 +90,10 @@ export default function Cadastro() {
     <main className="min-h-screen bg-slate-50 py-8">
       <div className="mx-auto max-w-lg px-4">
         <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-800 text-white">
-            <Bus className="h-5 w-5" />
-          </div>
+          <img src="/sysbus-logo.png" alt="SYSBUS" className="h-10 w-auto object-contain rounded-xl" />
           <div className="leading-tight">
             <p className="font-bold text-slate-900">Criar conta de estudante</p>
-            <p className="text-xs text-slate-500">Transporte universitário — SYSBUS</p>
+            <p className="text-xs text-slate-500">Transporte universitário</p>
           </div>
         </div>
 
