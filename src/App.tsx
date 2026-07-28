@@ -24,6 +24,7 @@ import Transporte from "./painel/Transporte";
 import Funcionarios from "./painel/Funcionarios";
 import MonitorScreen from "./painel/MonitorScreen";
 import DonoScreen from "./painel/DonoScreen";
+import PropostaComercial from "./routes/PropostaComercial";
 
 function Splash() {
   return (
@@ -61,6 +62,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/proposta" element={<PropostaComercial />} />
       <Route path="/cadastro" element={<Cadastro />} />
       <Route path="/definir-senha" element={<DefinirSenha />} />
       <Route path="/v/:token" element={<Verificacao />} />

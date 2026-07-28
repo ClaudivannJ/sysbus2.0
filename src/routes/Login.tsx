@@ -109,12 +109,20 @@ export default function Login() {
             {enviando ? "Entrando…" : "Entrar"}
           </button>
 
-          <p className="text-center text-sm text-slate-500">
-            É estudante e ainda não tem conta?{" "}
-            <Link to="/cadastro" className="font-medium text-brand-600 hover:underline">
-              Criar conta
-            </Link>
-          </p>
+          <div className="space-y-1 text-center text-sm text-slate-500">
+            <p>
+              É estudante e ainda não tem conta?{" "}
+              <Link to="/cadastro" className="font-medium text-brand-600 hover:underline">
+                Criar conta
+              </Link>
+            </p>
+            <p className="pt-2 text-xs border-t border-slate-100">
+              É gestor público ou prefeitura?{" "}
+              <Link to="/proposta" className="font-semibold text-brand-700 hover:underline">
+                Ver Proposta Comercial & Apresentação
+              </Link>
+            </p>
+          </div>
         </form>
       </div>
     </main>
