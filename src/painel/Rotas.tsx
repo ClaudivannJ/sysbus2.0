@@ -74,6 +74,13 @@ export default function Rotas() {
   );
 }
 
+const LABEL_EXIBIR: Record<string, string> = {
+  QTD: "Só a quantidade que falta",
+  NOME: "Só os nomes de quem falta",
+  QTD_NOME: "Quantidade + nomes",
+  PERFIL: "Quantidade + nomes + foto",
+};
+
 function RotaCard({ rota }: { rota: Rota }) {
   const qc = useQueryClient();
   const [salvo, setSalvo] = useState(false);
@@ -98,6 +105,7 @@ function RotaCard({ rota }: { rota: Rota }) {
       enqueteAbre: (f.get("enqueteAbre") as string) || null,
       enqueteFecha: fecha || null,
       intervaloChamadaS: Number(f.get("intervaloChamadaS")) || 10,
+      exibirQuemFalta: (f.get("exibirQuemFalta") as string) || "QTD_NOME",
       diasSemana: dias,
     }).eq("id", rota.id);
     setSalvando(false);
@@ -110,11 +118,17 @@ function RotaCard({ rota }: { rota: Rota }) {
   return (
     <form onSubmit={salvar} className="space-y-3 rounded-xl bg-white p-4 ring-1 ring-slate-200">
       <p className="font-semibold text-slate-800">{rota.nome}</p>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <label className="block text-xs"><span className="font-medium text-slate-600">Saída</span><input name="horarioSaida" type="time" defaultValue={rota.horarioSaida} className={cls} /></label>
         <label className="block text-xs"><span className="font-medium text-slate-600">Enquete abre</span><input name="enqueteAbre" type="time" defaultValue={rota.enqueteAbre ?? ""} className={cls} /></label>
         <label className="block text-xs"><span className="font-medium text-slate-600">Enquete fecha</span><input name="enqueteFecha" type="time" defaultValue={rota.enqueteFecha ?? ""} className={cls} /></label>
         <label className="block text-xs"><span className="font-medium text-slate-600">Intervalo chamada (s)</span><input name="intervaloChamadaS" type="number" min={1} defaultValue={rota.intervaloChamadaS} className={cls} /></label>
+        <label className="block text-xs col-span-2 sm:col-span-1">
+          <span className="font-medium text-slate-600">Exibir "quem falta"</span>
+          <select name="exibirQuemFalta" defaultValue={rota.exibirQuemFalta ?? "PERFIL"} className={cls}>
+            {Object.entries(LABEL_EXIBIR).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
       </div>
       <div>
         <span className="text-xs font-medium text-slate-600">Dias de operação</span>
@@ -125,7 +139,7 @@ function RotaCard({ rota }: { rota: Rota }) {
               <button
                 key={d.n}
                 type="button"
-                onClick={() => setDias((s) => (on ? s.filter((x) => x !== d.n) : [...s, d.n]))}
+                onClick={() => setDias((s) => on ? s.filter((x) => x !== d.n) : [...s, d.n])}
                 className={`rounded-lg px-2.5 py-1 text-xs font-medium ring-1 ${on ? "bg-brand-800 text-white ring-slate-900" : "bg-white text-slate-500 ring-slate-300"}`}
               >
                 {d.l}
@@ -269,12 +283,7 @@ function ItinerarioGate(props: { destinoId: string; secretariaId: string | null;
 
 interface Ponto { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; localidadeId: string | null; faculdade: string | null; lat: number | null; lng: number | null; raioMetros: number }
 interface Localidade { id: string; nome: string }
-const LABEL_EXIBIR: Record<string, string> = {
-  QTD: "Só a quantidade que falta",
-  NOME: "Só os nomes de quem falta",
-  QTD_NOME: "Quantidade + nomes",
-  PERFIL: "Quantidade + nomes + foto",
-};
+
 
 function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: string; secretariaId: string | null; exibirQuemFalta: string }) {
   const qc = useQueryClient();
