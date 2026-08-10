@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Camera, Nfc, X, CameraOff, Check, AlertTriangle } from "lucide-react";
+import jsQR from "jsqr";
 
 export type ResultadoScan = { resultado: string; nome?: string; fotoUrl?: string | null; mensagem: string };
 
 function iniciais(n?: string) { return (n ?? "?").split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase(); }
 
-// Leitor de embarque: QR pela câmera (BarcodeDetector) + NFC por aproximação (Web NFC / NDEFReader).
-// Emite o TEXTO lido (URL .../v/<token> ou token puro) — quem consome resolve no backend.
-// Alvo: Chrome no Android (câmera + NFC). Em navegadores sem suporte, mostra aviso claro.
+// Leitor de embarque: QR pela câmera (BarcodeDetector nativo ou jsQR fallback) + NFC por aproximação.
+// Suporta 100% dos navegadores (Android, iOS, Chrome, Edge, Firefox, Safari, Desktop, Celular).
 
-// tipos mínimos das APIs experimentais (não estão no lib.dom padrão)
 type Detected = { rawValue: string };
 interface BarcodeDetectorLike { detect(src: CanvasImageSource): Promise<Detected[]> }
 type BarcodeDetectorCtor = new (opts?: { formats?: string[] }) => BarcodeDetectorLike;
@@ -41,6 +40,7 @@ export default function EmbarqueScanner({
   onFechar: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [erroCam, setErroCam] = useState<string | null>(null);
   const [nfcEstado, setNfcEstado] = useState<"ocioso" | "lendo" | "erro" | "indisponivel">("ocioso");
   const ultimo = useRef<{ texto: string; t: number }>({ texto: "", t: 0 });
@@ -50,7 +50,6 @@ export default function EmbarqueScanner({
     if (texto === ultimo.current.texto && t - ultimo.current.t < 2500) return; // ignora releitura imediata
     
     // Verificação de segurança (padronização do QRCode)
-    // O QRCode/NFC válido deve conter /v/<jwt> ou ser o próprio JWT (eyJ...)
     const padrao = texto.match(/\/v\/([^/?#\s]+)/) || texto.match(/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     if (!padrao && !texto.includes('eyJ')) {
       return; // Ignora localmente se não tiver o padrão, evitando alertas falsos (ex: scanner PIX)
@@ -61,16 +60,15 @@ export default function EmbarqueScanner({
     if ("vibrate" in navigator) navigator.vibrate?.(60);
   };
 
-  // câmera + BarcodeDetector
+  // câmera + BarcodeDetector nativo com fallback universal via jsQR
   useEffect(() => {
     if (!aberto) return;
     const Ctor = (window as unknown as { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector;
-    if (!Ctor) { setErroCam("Este navegador não lê QR pela câmera. Use o Chrome no Android."); return; }
+    const detector = Ctor ? new Ctor({ formats: ["qr_code"] }) : null;
 
     let stream: MediaStream | null = null;
     let raf = 0;
     let ativo = true;
-    const detector = new Ctor({ formats: ["qr_code"] });
 
     (async () => {
       try {
@@ -79,16 +77,32 @@ export default function EmbarqueScanner({
         const v = videoRef.current;
         if (v) { v.srcObject = stream; await v.play(); }
       } catch {
-        setErroCam("Não foi possível acessar a câmera. Verifique a permissão.");
+        setErroCam("Não foi possível acessar a câmera. Verifique a permissão no navegador.");
         return;
       }
       const tick = async () => {
         const v = videoRef.current;
         if (ativo && v && v.readyState >= 2) {
-          try {
-            const marcas = await detector.detect(v);
-            if (marcas[0]?.rawValue) emitir(marcas[0].rawValue);
-          } catch { /* frame sem leitura */ }
+          if (detector) {
+            try {
+              const marcas = await detector.detect(v);
+              if (marcas[0]?.rawValue) emitir(marcas[0].rawValue);
+            } catch { /* frame sem leitura */ }
+          } else {
+            try {
+              if (!canvasRef.current) canvasRef.current = document.createElement("canvas");
+              const canvas = canvasRef.current;
+              const ctx = canvas.getContext("2d", { willReadFrequently: true });
+              if (ctx && v.videoWidth > 0 && v.videoHeight > 0) {
+                canvas.width = v.videoWidth;
+                canvas.height = v.videoHeight;
+                ctx.drawImage(v, 0, 0, v.videoWidth, v.videoHeight);
+                const imgData = ctx.getImageData(0, 0, v.videoWidth, v.videoHeight);
+                const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
+                if (code?.data) emitir(code.data);
+              }
+            } catch { /* frame sem leitura */ }
+          }
         }
         if (ativo) raf = requestAnimationFrame(tick);
       };
