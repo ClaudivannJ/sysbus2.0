@@ -145,31 +145,23 @@ function RotaCard({ rota }: { rota: Rota }) {
   );
 }
 
-// Horário da chamada por ponto de embarque (a secretaria define). A chamada inicia sozinha.
+// Horário da chamada por ponto (IDA e VOLTA). A chamada inicia sozinha.
 function HorariosChamada({ destinoId }: { destinoId: string }) {
   const qc = useQueryClient();
   const [aberto, setAberto] = useState(false);
 
-  const { data: locais } = useQuery({
-    queryKey: ["rota-localidades", destinoId],
+  const { data: pontos } = useQuery({
+    queryKey: ["rota-pontos-horarios", destinoId],
     enabled: aberto,
     queryFn: async () => {
-      // Busca localidades vinculadas a esta rota via PontoRota (sentido IDA),
-      // evitando o join em Onibus que falha por RLS para usuários não-gestores.
       const { data } = await supabase.from("PontoRota")
-        .select("localidadeId, localidade:Localidade ( id, nome )")
+        .select("id, nome, sentido, localidadeId, ordem")
         .eq("destinoId", destinoId)
-        .eq("sentido", "IDA")
-        .not("localidadeId", "is", null);
-      const vistos = new Set<string>();
-      const out: { id: string; nome: string }[] = [];
-      for (const r of (data ?? []) as { localidade: { id: string; nome: string } | { id: string; nome: string }[] | null }[]) {
-        const l = Array.isArray(r.localidade) ? r.localidade[0] : r.localidade;
-        if (l && !vistos.has(l.id)) { vistos.add(l.id); out.push(l); }
-      }
-      return out.sort((a, b) => a.nome.localeCompare(b.nome));
+        .order("ordem");
+      return (data as { id: string; nome: string; sentido: "IDA" | "VOLTA"; localidadeId: string | null; ordem: number }[]) ?? [];
     },
   });
+
   const { data: horarios } = useQuery({
     queryKey: ["horarios-chamada", destinoId],
     enabled: aberto,
@@ -179,11 +171,12 @@ function HorariosChamada({ destinoId }: { destinoId: string }) {
     },
   });
 
-  async function salvar(localidadeId: string, horario: string) {
+  async function salvar(p: { id: string; localidadeId: string | null }, horario: string) {
+    const key = p.localidadeId || p.id;
     if (!horario) {
-      await supabase.from("HorarioChamada").delete().eq("destinoId", destinoId).eq("localidadeId", localidadeId);
+      await supabase.from("HorarioChamada").delete().eq("destinoId", destinoId).eq("localidadeId", key);
     } else {
-      await supabase.from("HorarioChamada").upsert({ id: crypto.randomUUID(), destinoId, localidadeId, horario }, { onConflict: "destinoId,localidadeId" });
+      await supabase.from("HorarioChamada").upsert({ id: crypto.randomUUID(), destinoId, localidadeId: key, horario }, { onConflict: "destinoId,localidadeId" });
     }
     qc.invalidateQueries({ queryKey: ["horarios-chamada", destinoId] });
   }
@@ -195,6 +188,10 @@ function HorariosChamada({ destinoId }: { destinoId: string }) {
       </button>
     );
   }
+
+  const pontosIda = (pontos ?? []).filter((p) => p.sentido === "IDA");
+  const pontosVolta = (pontos ?? []).filter((p) => p.sentido === "VOLTA");
+
   return (
     <div className="space-y-3 rounded-xl bg-slate-50/60 p-4 ring-1 ring-slate-200">
       <div className="flex items-center justify-between">
@@ -202,23 +199,55 @@ function HorariosChamada({ destinoId }: { destinoId: string }) {
         <button type="button" onClick={() => setAberto(false)} className="text-slate-400 hover:text-slate-700"><ChevronDown className="h-4 w-4 rotate-180" /></button>
       </div>
       <p className="text-xs text-slate-500">A chamada de cada ponto inicia sozinha neste horário — mesmo sem o monitor presente. Deixe vazio para usar o fechamento da enquete.</p>
-      {!locais || !horarios ? (
+      {!pontos || !horarios ? (
         <p className="text-xs text-slate-400">Carregando…</p>
-      ) : locais.length === 0 ? (
-        <p className="text-xs text-slate-400">Nenhum ponto de embarque (IDA) configurado no itinerário desta rota. Adicione os pontos em "Configurar itinerário e pontos" abaixo.</p>
+      ) : pontos.length === 0 ? (
+        <p className="text-xs text-slate-400">Nenhum ponto configurado no itinerário desta rota. Adicione os pontos abaixo em "Configurar itinerário e pontos".</p>
       ) : (
-        <div className="space-y-2">
-          {locais.map((l) => (
-            <div key={l.id} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
-              <span className="text-sm text-slate-700">{l.nome}</span>
-              <input
-                type="time"
-                defaultValue={horarios[l.id] ?? ""}
-                onChange={(e) => salvar(l.id, e.target.value)}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-              />
+        <div className="space-y-3">
+          {pontosIda.length > 0 && (
+            <div>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">IDA (Embarque & Desembarque)</p>
+              <div className="space-y-1.5">
+                {pontosIda.map((p) => {
+                  const k = p.localidadeId || p.id;
+                  return (
+                    <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <span className="text-sm font-medium text-slate-700">{p.nome}</span>
+                      <input
+                        type="time"
+                        defaultValue={horarios[k] ?? ""}
+                        onChange={(e) => salvar(p, e.target.value)}
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ))}
+          )}
+
+          {pontosVolta.length > 0 && (
+            <div>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">VOLTA (Faculdades & Retorno)</p>
+              <div className="space-y-1.5">
+                {pontosVolta.map((p) => {
+                  const k = p.localidadeId || p.id;
+                  return (
+                    <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <span className="text-sm font-medium text-slate-700">{p.nome}</span>
+                      <input
+                        type="time"
+                        defaultValue={horarios[k] ?? ""}
+                        onChange={(e) => salvar(p, e.target.value)}
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -252,6 +281,7 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
   const [aberto, setAberto] = useState(false);
   const [novaFac, setNovaFac] = useState("");
   const [novaLoc, setNovaLoc] = useState("");
+  const [novaLocCustom, setNovaLocCustom] = useState("");
 
   const { data: pontos } = useQuery({
     queryKey: ["pontos-rota", destinoId],
@@ -276,11 +306,19 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
   const daFace = (s: "IDA" | "VOLTA") => (pontos ?? []).filter((p) => p.sentido === s).sort((a, b) => a.ordem - b.ordem);
 
   async function addIda() {
-    if (!novaLoc) return;
-    const loc = (locais ?? []).find((l) => l.id === novaLoc);
+    const nome = novaLocCustom.trim() || ((locais ?? []).find((l) => l.id === novaLoc)?.nome ?? "");
+    if (!nome) return;
     const ordem = daFace("IDA").length;
-    await supabase.from("PontoRota").insert({ id: crypto.randomUUID(), destinoId, sentido: "IDA", ordem, nome: loc?.nome ?? "Ponto", localidadeId: novaLoc });
+    await supabase.from("PontoRota").insert({ 
+      id: crypto.randomUUID(), 
+      destinoId, 
+      sentido: "IDA", 
+      ordem, 
+      nome, 
+      localidadeId: novaLoc || null 
+    });
     setNovaLoc("");
+    setNovaLocCustom("");
     recarregar();
   }
   async function addVolta() {
@@ -372,22 +410,32 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Ida — pontos de embarque</p>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Ida — pontos do percurso (embarque, paradas & desembarque)</p>
           <Lista sentido="IDA" />
-          <div className="mt-2 flex gap-2">
-            <select value={novaLoc} onChange={(e) => setNovaLoc(e.target.value)} className={`${inp} flex-1`}>
-              <option value="">Escolher localidade…</option>
-              {(locais ?? []).map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
-            </select>
-            <button type="button" onClick={addIda} disabled={!novaLoc} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-medium text-white hover:bg-brand-800 disabled:opacity-50">Adicionar</button>
+          <div className="mt-2 space-y-1.5">
+            <div className="flex gap-2">
+              <select value={novaLoc} onChange={(e) => { setNovaLoc(e.target.value); if (e.target.value) setNovaLocCustom(""); }} className={`${inp} flex-1`}>
+                <option value="">Escolher localidade de origem…</option>
+                {(locais ?? []).map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <input 
+                value={novaLocCustom} 
+                onChange={(e) => { setNovaLocCustom(e.target.value); if (e.target.value) setNovaLoc(""); }} 
+                placeholder="Ou nome do ponto (ex.: Faccon, AESA, Posto Carneiro)" 
+                className={`${inp} flex-1 text-xs`} 
+              />
+              <button type="button" onClick={addIda} disabled={!novaLoc && !novaLocCustom.trim()} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-medium text-white hover:bg-brand-800 disabled:opacity-50">Adicionar</button>
+            </div>
           </div>
         </div>
 
         <div>
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Volta — pontos nas faculdades</p>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Volta — pontos de retorno (faculdades & paradas)</p>
           <Lista sentido="VOLTA" />
           <div className="mt-2 flex gap-2">
-            <input value={novaFac} onChange={(e) => setNovaFac(e.target.value)} placeholder="Nome da faculdade" className={`${inp} flex-1`} />
+            <input value={novaFac} onChange={(e) => setNovaFac(e.target.value)} placeholder="Nome do ponto na volta (ex.: AESA, FIC, Corredor Faccon)" className={`${inp} flex-1 text-xs`} />
             <button type="button" onClick={addVolta} disabled={!novaFac.trim()} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-medium text-white hover:bg-brand-800 disabled:opacity-50">Adicionar</button>
           </div>
         </div>
