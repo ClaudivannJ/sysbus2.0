@@ -16,7 +16,7 @@ interface Falta { nome: string; fotoUrl: string | null }
 interface PontoItin { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; faltamQtd: number; faltam: Falta[]; lat: number | null; lng: number | null; raioMetros: number }
 interface Estado {
   viagem: { id: string; horario: string; pontoAtualId: string | null; sentidoAtual: string | null } | null;
-  rota?: string; pontos: Ponto[]; nfcAtivo?: boolean; itinerario?: PontoItin[]; exibirQuemFalta?: string;
+  rota?: string; pontos: Ponto[]; nfcAtivo?: boolean; itinerario?: PontoItin[]; transparenciaEmbarque?: string;
 }
 interface Rota { id: string; nome: string }
 
@@ -118,7 +118,7 @@ export default function MonitorScreen() {
   const itinSentido = (estado?.itinerario ?? []).filter((p) => p.sentido === sentido).sort((a, b) => a.ordem - b.ordem);
   const pontoAtualId = estado?.viagem?.pontoAtualId ?? null;
   const pontoAtual = itinSentido.find((p) => p.id === pontoAtualId) ?? null;
-  const exibir = estado?.exibirQuemFalta ?? "QTD_NOME";
+  const exibir = estado?.transparenciaEmbarque ?? "CONTAGEM_NOMES";
 
   const total = (estado?.pontos ?? []).reduce((s, p) => s + p.itens.length, 0);
   const embarcados = (estado?.pontos ?? []).reduce(

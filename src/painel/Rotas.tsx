@@ -8,7 +8,7 @@ interface Rota {
   id: string; nome: string; horarioSaida: string;
   enqueteAbre: string | null; enqueteFecha: string | null;
   intervaloChamadaS: number; diasSemana: number[]; secretariaId: string | null;
-  exibirQuemFalta: string;
+  transparenciaEmbarque: string;
 }
 
 const DIAS = [
@@ -24,7 +24,7 @@ export default function Rotas() {
   const { data: rotas, isLoading } = useQuery({
     queryKey: ["painel-rotas", perfil?.secretariaId],
     queryFn: async () => {
-      let q = supabase.from("Destino").select("id,nome,horarioSaida,enqueteAbre,enqueteFecha,intervaloChamadaS,diasSemana,secretariaId,exibirQuemFalta").order("nome");
+      let q = supabase.from("Destino").select("id,nome,horarioSaida,enqueteAbre,enqueteFecha,intervaloChamadaS,diasSemana,secretariaId,transparenciaEmbarque").order("nome");
       if (perfil?.secretariaId) q = q.eq("secretariaId", perfil.secretariaId);
       const { data } = await q;
       return (data as Rota[]) ?? [];
@@ -74,12 +74,6 @@ export default function Rotas() {
   );
 }
 
-const LABEL_EXIBIR: Record<string, string> = {
-  QTD: "Só a quantidade que falta",
-  NOME: "Só os nomes de quem falta",
-  QTD_NOME: "Quantidade + nomes",
-  PERFIL: "Quantidade + nomes + foto",
-};
 
 function RotaCard({ rota }: { rota: Rota }) {
   const qc = useQueryClient();
@@ -105,7 +99,6 @@ function RotaCard({ rota }: { rota: Rota }) {
       enqueteAbre: (f.get("enqueteAbre") as string) || null,
       enqueteFecha: fecha || null,
       intervaloChamadaS: Number(f.get("intervaloChamadaS")) || 10,
-      exibirQuemFalta: (f.get("exibirQuemFalta") as string) || "QTD_NOME",
       diasSemana: dias,
     }).eq("id", rota.id);
     setSalvando(false);
@@ -118,17 +111,11 @@ function RotaCard({ rota }: { rota: Rota }) {
   return (
     <form onSubmit={salvar} className="space-y-3 rounded-xl bg-white p-4 ring-1 ring-slate-200">
       <p className="font-semibold text-slate-800">{rota.nome}</p>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <label className="block text-xs"><span className="font-medium text-slate-600">Saída</span><input name="horarioSaida" type="time" defaultValue={rota.horarioSaida} className={cls} /></label>
         <label className="block text-xs"><span className="font-medium text-slate-600">Enquete abre</span><input name="enqueteAbre" type="time" defaultValue={rota.enqueteAbre ?? ""} className={cls} /></label>
         <label className="block text-xs"><span className="font-medium text-slate-600">Enquete fecha</span><input name="enqueteFecha" type="time" defaultValue={rota.enqueteFecha ?? ""} className={cls} /></label>
         <label className="block text-xs"><span className="font-medium text-slate-600">Intervalo chamada (s)</span><input name="intervaloChamadaS" type="number" min={1} defaultValue={rota.intervaloChamadaS} className={cls} /></label>
-        <label className="block text-xs col-span-2 sm:col-span-1">
-          <span className="font-medium text-slate-600">Exibir "quem falta"</span>
-          <select name="exibirQuemFalta" defaultValue={rota.exibirQuemFalta ?? "PERFIL"} className={cls}>
-            {Object.entries(LABEL_EXIBIR).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </label>
       </div>
       <div>
         <span className="text-xs font-medium text-slate-600">Dias de operação</span>
@@ -153,7 +140,8 @@ function RotaCard({ rota }: { rota: Rota }) {
       </button>
 
       <HorariosChamada destinoId={rota.id} />
-      <ItinerarioGate destinoId={rota.id} secretariaId={rota.secretariaId} exibirQuemFalta={rota.exibirQuemFalta} />
+      <TransparenciaEmbarque destinoId={rota.id} valor={rota.transparenciaEmbarque} />
+      <ItinerarioGate destinoId={rota.id} secretariaId={rota.secretariaId} />
       <AnalyticsPonto destinoId={rota.id} />
     </form>
   );
@@ -269,7 +257,7 @@ function HorariosChamada({ destinoId }: { destinoId: string }) {
 }
 
 // Só mostra o editor de itinerário se o DONO tiver o módulo ligado.
-function ItinerarioGate(props: { destinoId: string; secretariaId: string | null; exibirQuemFalta: string }) {
+function ItinerarioGate(props: { destinoId: string; secretariaId: string | null }) {
   const { data: ativo } = useQuery({
     queryKey: ["flag-itinerario"],
     queryFn: async () => {
@@ -285,7 +273,7 @@ interface Ponto { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: str
 interface Localidade { id: string; nome: string }
 
 
-function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: string; secretariaId: string | null; exibirQuemFalta: string }) {
+function Itinerario({ destinoId, secretariaId }: { destinoId: string; secretariaId: string | null }) {
   const qc = useQueryClient();
   const [aberto, setAberto] = useState(false);
   const [novaFac, setNovaFac] = useState("");
@@ -346,10 +334,6 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
     await supabase.from("PontoRota").update({ ordem: b.ordem }).eq("id", a.id);
     await supabase.from("PontoRota").update({ ordem: a.ordem }).eq("id", b.id);
     recarregar();
-  }
-  async function mudarExibir(v: string) {
-    await supabase.from("Destino").update({ exibirQuemFalta: v }).eq("id", destinoId);
-    qc.invalidateQueries({ queryKey: ["painel-rotas"] });
   }
 
   async function salvarCoords(id: string, lat: number | null, lng: number | null, raioMetros: number) {
@@ -449,13 +433,57 @@ function Itinerario({ destinoId, secretariaId, exibirQuemFalta }: { destinoId: s
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <label className="block text-sm">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Exibir "quem falta" para os alunos</span>
-        <select defaultValue={exibirQuemFalta} onChange={(e) => mudarExibir(e.target.value)} className={`${inp} mt-1 w-full`}>
-          {Object.entries(LABEL_EXIBIR).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-      </label>
+// Painel de transparência de embarque — seção dedicada e separada das configs operacionais.
+function TransparenciaEmbarque({ destinoId, valor }: { destinoId: string; valor: string }) {
+  const qc = useQueryClient();
+  const [aberto, setAberto] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+  const inp = "rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500";
+
+  async function salvar(v: string) {
+    setSalvando(true);
+    await supabase.from("Destino").update({ transparenciaEmbarque: v }).eq("id", destinoId);
+    setSalvando(false); setSalvo(true);
+    setTimeout(() => setSalvo(false), 1500);
+    qc.invalidateQueries({ queryKey: ["painel-rotas"] });
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white">
+      <button type="button" onClick={() => setAberto((o) => !o)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50">
+        <Activity className="h-4 w-4 text-brand-600" />
+        Transparência de embarque
+        <ChevronDown className={`ml-auto h-4 w-4 text-slate-400 transition-transform ${aberto ? "rotate-180" : ""}`} />
+      </button>
+      {aberto && (
+        <div className="border-t border-slate-100 px-4 py-4 space-y-3">
+          <p className="text-xs text-slate-500">
+            Define o que os passageiros podem visualizar sobre ausências durante a espera em cada ponto de retorno.
+            Esta é a política padrão da rota — cada ônibus pode sobrescrever individualmente.
+          </p>
+          <label className="block text-xs">
+            <span className="font-medium text-slate-600">Nível de visibilidade para passageiros</span>
+            <select
+              defaultValue={valor}
+              onChange={(e) => salvar(e.target.value)}
+              className={`mt-1 w-full ${inp}`}
+            >
+              <option value="PRIVADO">Privado — passageiros veem apenas que o ônibus está aguardando</option>
+              <option value="CONTAGEM">Contagem — "Aguardando 5 passageiros"</option>
+              <option value="CONTAGEM_NOMES">Contagem + nomes</option>
+              <option value="PERFIL_COMPLETO">Contagem + nomes + foto</option>
+            </select>
+          </label>
+          {salvando && <p className="text-xs text-slate-400">Salvando…</p>}
+          {salvo && <p className="flex items-center gap-1 text-xs text-emerald-600"><Check className="h-3.5 w-3.5" /> Salvo</p>}
+        </div>
+      )}
     </div>
   );
 }

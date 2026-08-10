@@ -6,6 +6,7 @@ import type { SituacaoAutorizacao } from "../lib/autorizacao";
 
 export interface AlunoPortal extends AlunoParaCartao {
   renovacoes: { status: "PENDENTE" | "APROVADA" | "REJEITADA" }[];
+  destino: { id: string; modelo: unknown } | null;
 }
 
 /** Carrega os dados do próprio aluno logado (carteirinha + template da rota + renovações).
@@ -22,7 +23,7 @@ export function useAluno(usuarioId: string | undefined) {
         .from("Aluno")
         .select(
           `nome, matricula, curso, fotoUrl, faculdade,
-           destino:Destino ( modelo:ModeloCarteirinha ( campos, largura, altura, arteFrenteUrl, arteVersoUrl ) ),
+           destino:Destino ( id, modelo:ModeloCarteirinha ( campos, largura, altura, arteFrenteUrl, arteVersoUrl ) ),
            carteirinha:Carteirinha ( qrToken, validade ),
            renovacoes:Renovacao ( status )`,
         )

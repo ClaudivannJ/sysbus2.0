@@ -9,6 +9,7 @@ const um = (x: unknown) => (Array.isArray(x) ? (x[0] ?? null) : (x ?? null));
 interface Onibus {
   id: string; nome: string; placa: string | null; capacidade: number;
   motorista: string | null; ativo: boolean; destinoId?: string; destino: unknown;
+  transparenciaEmbarque?: string | null;
   locais: { localidadeId: string; prioridade: number | null; localidade: unknown }[];
 }
 interface Rota { id: string; nome: string }
@@ -32,6 +33,12 @@ function OnibusCard({
     } else {
       await supabase.from("OnibusLocalidade").delete().eq("onibusId", o.id).eq("localidadeId", localidadeId);
     }
+    qc.invalidateQueries({ queryKey: ["painel-frota"] });
+  }
+
+  async function salvarTransparencia(v: string) {
+    const val = v === "HERDAR" ? null : v;
+    await supabase.from("Onibus").update({ transparenciaEmbarque: val }).eq("id", o.id);
     qc.invalidateQueries({ queryKey: ["painel-frota"] });
   }
 
@@ -79,6 +86,23 @@ function OnibusCard({
               ))}
             </div>
           )}
+
+          <div className="mt-4 border-t border-slate-200 pt-3">
+            <label className="block text-xs">
+              <span className="font-semibold text-slate-700">Transparência deste ônibus (sobrescreve a rota)</span>
+              <select
+                defaultValue={o.transparenciaEmbarque ?? "HERDAR"}
+                onChange={(e) => salvarTransparencia(e.target.value)}
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 outline-none"
+              >
+                <option value="HERDAR">Herdar da rota (padrão)</option>
+                <option value="PRIVADO">Privado — passageiros veem apenas que o ônibus está aguardando</option>
+                <option value="CONTAGEM">Contagem — "Aguardando 5 passageiros"</option>
+                <option value="CONTAGEM_NOMES">Contagem + nomes</option>
+                <option value="PERFIL_COMPLETO">Contagem + nomes + foto</option>
+              </select>
+            </label>
+          </div>
         </div>
       )}
     </div>
@@ -93,12 +117,12 @@ export default function Frota() {
   const { data: frota, isLoading } = useQuery({
     queryKey: ["painel-frota", perfil?.secretariaId],
     queryFn: async () => {
-      let q = supabase.from("Onibus").select("id,nome,placa,capacidade,motorista,ativo,destinoId,destino:Destino(nome), locais:OnibusLocalidade(localidadeId, prioridade, localidade:Localidade(nome))").order("nome");
+      let q = supabase.from("Onibus").select("id,nome,placa,capacidade,motorista,ativo,destinoId,transparenciaEmbarque,destino:Destino(nome), locais:OnibusLocalidade(localidadeId, prioridade, localidade:Localidade(nome))").order("nome");
       if (perfil?.secretariaId) q = q.eq("secretariaId", perfil.secretariaId);
       const { data, error } = await q;
       if (error || !data) {
         // Fallback: se o join aninhado de OnibusLocalidade falhar por RLS, busca apenas os ônibus
-        let q2 = supabase.from("Onibus").select("id,nome,placa,capacidade,motorista,ativo,destinoId,destino:Destino(nome)").order("nome");
+        let q2 = supabase.from("Onibus").select("id,nome,placa,capacidade,motorista,ativo,destinoId,transparenciaEmbarque,destino:Destino(nome)").order("nome");
         if (perfil?.secretariaId) q2 = q2.eq("secretariaId", perfil.secretariaId);
         const { data: data2 } = await q2;
         return (data2 as Onibus[]) ?? [];

@@ -9,6 +9,7 @@ import { supabase } from "../lib/supabase";
 import CarteirinhaFlip from "../components/CarteirinhaFlip";
 import CarteirinhaImpressao from "../components/CarteirinhaImpressao";
 import { Printer, Nfc } from "lucide-react";
+import StatusEmbarque from "../components/StatusEmbarque";
 
 type NDEFWriter = { write(msg: { records: { recordType: string; data: string }[] }): Promise<void> };
 type NDEFWriterCtor = new () => NDEFWriter;
@@ -78,9 +79,12 @@ export default function Carteirinha() {
   const cartao = montarCarteirinha(aluno);
   const situacao = situacaoAutorizacao(aluno);
   const label = LABEL_AUTORIZACAO[situacao];
+  const destinoId = aluno.destino?.id ?? null;
 
   return (
     <div className="space-y-4">
+      {/* Card contextual "Sua viagem hoje" — aparece automaticamente em dias de operação */}
+      <StatusEmbarque destinoId={destinoId} />
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-slate-900">Minha carteirinha</h1>
         <span

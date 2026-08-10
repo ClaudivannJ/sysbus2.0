@@ -219,7 +219,7 @@ Deno.serve(async (req) => {
   if (!destinoId) return json({ error: "destinoId ausente" }, 400);
 
   // escopo de tenant
-  const { data: destino } = await db.from("Destino").select("secretariaId, nome, exibirQuemFalta").eq("id", destinoId).maybeSingle();
+  const { data: destino } = await db.from("Destino").select("secretariaId, nome, transparenciaEmbarque").eq("id", destinoId).maybeSingle();
   if (!destino) return json({ error: "rota não encontrada" }, 404);
   const podeVer = caller.papel === "DONO" || destino.secretariaId === caller.secretariaId;
   if (!podeVer) return json({ error: "sem permissão nesta rota" }, 403);
@@ -253,7 +253,7 @@ Deno.serve(async (req) => {
     } else if (p.sentido === "VOLTA" && p.faculdade) {
       faltantes = reservasConf.filter((r: DB) => r.vaiVolta && r.aluno?.faculdade === p.faculdade && temEmb(r, "IDA") && !temEmb(r, "VOLTA"));
     }
-    const exibirQuem = destino.exibirQuemFalta ?? "QTD_NOME";
+    const exibirQuem = destino.transparenciaEmbarque ?? "CONTAGEM_NOMES";
     return {
       id: p.id, sentido: p.sentido, ordem: p.ordem, nome: p.nome,
       lat: p.lat ?? null, lng: p.lng ?? null, raioMetros: p.raioMetros ?? 200,
@@ -301,6 +301,6 @@ Deno.serve(async (req) => {
   return json({
     viagem: { id: viagem.id, horario: viagem.horario, pontoAtualId: viagem.pontoAtualId ?? null, sentidoAtual: viagem.sentidoAtual ?? null },
     rota: destino.nome, pontos, nfcAtivo,
-    itinerario, exibirQuemFalta: destino.exibirQuemFalta ?? "QTD_NOME",
+    itinerario, transparenciaEmbarque: destino.transparenciaEmbarque ?? "CONTAGEM_NOMES",
   });
 });
