@@ -94,8 +94,16 @@ export default function MonitorScreen() {
       if (error || !data) {
         setFeedback({ resultado: "ERRO", mensagem: "Falha ao registrar. Tente de novo." });
       } else {
-        setFeedback(data as ResultadoScan);
-        if ((data as ResultadoScan).resultado === "OK") qc.invalidateQueries({ queryKey: ["monitor-estado", destinoId] });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const d = data as any;
+        const res: ResultadoScan = {
+          resultado: d.resultado,
+          nome: d.nome ?? d.aluno?.nome,
+          fotoUrl: d.fotoUrl ?? d.aluno?.fotoUrl,
+          mensagem: d.mensagem,
+        };
+        setFeedback(res);
+        if (res.resultado === "OK") qc.invalidateQueries({ queryKey: ["monitor-estado", destinoId] });
       }
     } finally {
       setTimeout(() => { escaneando.current = false; }, 900);

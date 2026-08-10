@@ -102,31 +102,31 @@ Deno.serve(async (req) => {
     if (!aluno) return json({ resultado: "TOKEN_INVALIDO", mensagem: "Carteirinha sem aluno." });
     const info = { nome: aluno.nome, fotoUrl: aluno.fotoUrl };
 
-    if (cart.versao !== v || cart.qrToken !== token) return json({ resultado: "DESATUALIZADA", aluno: info, mensagem: "Carteirinha desatualizada — peça para o aluno abrir o app." });
-    if (!cart.validade) return json({ resultado: "NAO_AUTORIZADA", aluno: info, mensagem: "Aluno sem autorização válida." });
-    if (new Date(cart.validade).getTime() < Date.now()) return json({ resultado: "EXPIRADA", aluno: info, mensagem: "Carteirinha expirada." });
+    if (cart.versao !== v || cart.qrToken !== token) return json({ resultado: "DESATUALIZADA", nome: aluno.nome, fotoUrl: aluno.fotoUrl, aluno: info, mensagem: "Carteirinha desatualizada — peça para o aluno abrir o app." });
+    if (!cart.validade) return json({ resultado: "NAO_AUTORIZADA", nome: aluno.nome, fotoUrl: aluno.fotoUrl, aluno: info, mensagem: "Aluno sem autorização válida." });
+    if (new Date(cart.validade).getTime() < Date.now()) return json({ resultado: "EXPIRADA", nome: aluno.nome, fotoUrl: aluno.fotoUrl, aluno: info, mensagem: "Carteirinha expirada." });
 
     // 3) a carteirinha é da mesma rota que o monitor está operando?
-    if (aluno.destinoId && aluno.destinoId !== destinoId) return json({ resultado: "OUTRA_ROTA", aluno: info, mensagem: "Aluno é de outra rota." });
+    if (aluno.destinoId && aluno.destinoId !== destinoId) return json({ resultado: "OUTRA_ROTA", nome: aluno.nome, fotoUrl: aluno.fotoUrl, aluno: info, mensagem: "Aluno é de outra rota." });
 
     // 4) reserva CONFIRMADA de hoje nesta viagem
     const { data: viagem } = await db.from("Viagem").select("id")
       .eq("destinoId", destinoId).gte("data", inicioDeHoje().toISOString()).lt("data", amanha().toISOString())
       .limit(1).maybeSingle();
-    if (!viagem) return json({ resultado: "SEM_VIAGEM", aluno: info, mensagem: "Sem viagem hoje nesta rota." });
+    if (!viagem) return json({ resultado: "SEM_VIAGEM", nome: aluno.nome, fotoUrl: aluno.fotoUrl, aluno: info, mensagem: "Sem viagem hoje nesta rota." });
 
     const { data: reserva } = await db.from("Reserva").select("id, status, vaiIda, vaiVolta")
       .eq("viagemId", viagem.id).eq("alunoId", aluno.id).maybeSingle();
-    if (!reserva || reserva.status !== "CONFIRMADA") return json({ resultado: "NAO_CONFIRMADO", aluno: info, mensagem: "Aluno não confirmou presença hoje." });
+    if (!reserva || reserva.status !== "CONFIRMADA") return json({ resultado: "NAO_CONFIRMADO", nome: aluno.nome, fotoUrl: aluno.fotoUrl, aluno: info, mensagem: "Aluno não confirmou presença hoje." });
     if (sentido === "IDA" ? !reserva.vaiIda : !reserva.vaiVolta) {
-      return json({ resultado: "NAO_NESTE_SENTIDO", aluno: info, mensagem: `Aluno não vai na ${sentido === "IDA" ? "ida" : "volta"}.` });
+      return json({ resultado: "NAO_NESTE_SENTIDO", nome: aluno.nome, fotoUrl: aluno.fotoUrl, aluno: info, mensagem: `Aluno não vai na ${sentido === "IDA" ? "ida" : "volta"}.` });
     }
 
     // 5) marca embarque (idempotente)
     const { data: existe } = await db.from("Embarque").select("id, horario").eq("reservaId", reserva.id).eq("sentido", sentido).maybeSingle();
-    if (existe) return json({ resultado: "JA_EMBARCADO", aluno: info, horario: existe.horario, mensagem: "Já havia embarcado." });
+    if (existe) return json({ resultado: "JA_EMBARCADO", nome: aluno.nome, fotoUrl: aluno.fotoUrl, aluno: info, horario: existe.horario, mensagem: "Já havia embarcado." });
     await db.from("Embarque").insert({ id: crypto.randomUUID(), reservaId: reserva.id, sentido, fiscalId: caller.id });
-    return json({ resultado: "OK", aluno: info, mensagem: "Embarque registrado." });
+    return json({ resultado: "OK", nome: aluno.nome, fotoUrl: aluno.fotoUrl, aluno: info, mensagem: "Embarque registrado." });
   }
 
   // ---- definir ponto atual do ônibus ----

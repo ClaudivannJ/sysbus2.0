@@ -148,13 +148,17 @@ export default function EmbarqueScanner({
         const ok = feedback.resultado === "OK";
         const aviso = feedback.resultado === "JA_EMBARCADO";
         const tom = ok ? "bg-emerald-600" : aviso ? "bg-amber-500" : "bg-red-600";
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const nome = feedback.nome || (feedback as any).aluno?.nome;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fotoUrl = feedback.fotoUrl || (feedback as any).aluno?.fotoUrl;
         return (
           <div className={`flex items-center gap-3 px-4 py-3 text-white ${tom}`}>
             <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/25 text-sm font-semibold">
-              {feedback.fotoUrl ? <img src={feedback.fotoUrl} alt="" className="h-full w-full object-cover" /> : iniciais(feedback.nome)}
+              {fotoUrl ? <img src={fotoUrl} alt="" className="h-full w-full object-cover" /> : iniciais(nome)}
             </div>
             <div className="min-w-0 flex-1 leading-tight">
-              <p className="truncate text-sm font-semibold">{feedback.nome ?? "—"}</p>
+              <p className="truncate text-sm font-semibold">{nome ?? "—"}</p>
               <p className="truncate text-xs text-white/90">{feedback.mensagem}</p>
             </div>
             {ok ? <Check className="h-6 w-6 shrink-0" /> : <AlertTriangle className="h-6 w-6 shrink-0" />}

@@ -91,9 +91,18 @@ export default function Frota() {
   const [criando, setCriando] = useState(false);
 
   const { data: frota, isLoading } = useQuery({
-    queryKey: ["painel-frota"],
+    queryKey: ["painel-frota", perfil?.secretariaId],
     queryFn: async () => {
-      const { data } = await supabase.from("Onibus").select("id,nome,placa,capacidade,motorista,ativo,destinoId,destino:Destino(nome), locais:OnibusLocalidade(localidadeId, prioridade, localidade:Localidade(nome))").order("nome");
+      let q = supabase.from("Onibus").select("id,nome,placa,capacidade,motorista,ativo,destinoId,destino:Destino(nome), locais:OnibusLocalidade(localidadeId, prioridade, localidade:Localidade(nome))").order("nome");
+      if (perfil?.secretariaId) q = q.eq("secretariaId", perfil.secretariaId);
+      const { data, error } = await q;
+      if (error || !data) {
+        // Fallback: se o join aninhado de OnibusLocalidade falhar por RLS, busca apenas os ônibus
+        let q2 = supabase.from("Onibus").select("id,nome,placa,capacidade,motorista,ativo,destinoId,destino:Destino(nome)").order("nome");
+        if (perfil?.secretariaId) q2 = q2.eq("secretariaId", perfil.secretariaId);
+        const { data: data2 } = await q2;
+        return (data2 as Onibus[]) ?? [];
+      }
       return (data as Onibus[]) ?? [];
     },
   });
