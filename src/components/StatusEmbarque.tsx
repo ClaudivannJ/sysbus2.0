@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bus, Users, Clock, UserX, CheckCircle2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Bus, Users, Clock, UserX, CheckCircle2, ArrowRight } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 interface AusenteInfo {
@@ -158,17 +159,26 @@ export default function StatusEmbarque({ destinoId }: { destinoId: string | null
   return (
     <div className="space-y-3">
       {/* Banner de status geral */}
-      <div className={`flex items-center gap-3 rounded-xl px-4 py-3 ${tudoPronto ? "bg-emerald-600" : "bg-brand-900"} text-white`}>
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
-            Sua viagem hoje · {data.sentido === "IDA" ? "Ida" : "Volta"}
-          </p>
-          <p className="text-base font-bold truncate">{data.rota}</p>
+      <div className={`flex flex-col gap-2 rounded-xl p-4 ${tudoPronto ? "bg-emerald-600" : "bg-brand-900"} text-white shadow-sm`}>
+        <div className="flex items-center justify-between">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
+              Sua viagem hoje · {data.sentido === "IDA" ? "Ida" : "Volta"}
+            </p>
+            <p className="text-base font-bold truncate">{data.rota}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-lg font-bold tabular-nums">{totalEmbarcados}<span className="text-sm font-normal opacity-70">/{totalCapacidade}</span></p>
+            <p className="flex items-center justify-end gap-1 text-[11px] opacity-70"><Clock className="h-3 w-3" /> ao vivo</p>
+          </div>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="text-lg font-bold tabular-nums">{totalEmbarcados}<span className="text-sm font-normal opacity-70">/{totalCapacidade}</span></p>
-          <p className="flex items-center justify-end gap-1 text-[11px] opacity-70"><Clock className="h-3 w-3" /> ao vivo</p>
-        </div>
+
+        <Link
+          to="/portal/acompanhar"
+          className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-xs font-bold text-white hover:bg-white/25 transition-colors"
+        >
+          Acompanhar Viagem ao Vivo <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </div>
 
       {/* Card por ônibus */}

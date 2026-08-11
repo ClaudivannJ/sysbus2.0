@@ -10,6 +10,7 @@ import Carteirinha from "./portal/Carteirinha";
 import Reserva from "./portal/Reserva";
 import Documentos from "./portal/Documentos";
 import Perfil from "./portal/Perfil";
+import AcompanharViagem from "./portal/AcompanharViagem";
 import PainelLayout from "./painel/PainelLayout";
 import Metricas from "./painel/Metricas";
 import Autorizacoes from "./painel/Autorizacoes";
@@ -115,6 +116,7 @@ export default function App() {
         <Route path="reserva" element={<Reserva />} />
         <Route path="documentos" element={<Documentos />} />
         <Route path="perfil" element={<Perfil />} />
+        <Route path="acompanhar" element={<AcompanharViagem />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

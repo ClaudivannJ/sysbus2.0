@@ -247,18 +247,23 @@ Deno.serve(async (req) => {
   const reservasConf = (v.reservas ?? []).filter((r: DB) => r.status === "CONFIRMADA");
   const temEmb = (r: DB, s: string) => (r.embarques ?? []).some((e: DB) => e.sentido === s);
   const itinerario = (itinRaw ?? []).map((p: DB) => {
+    let totalEsperados = 0;
     let faltantes: DB[] = [];
     if (p.sentido === "IDA" && p.localidadeId) {
-      faltantes = reservasConf.filter((r: DB) => r.vaiIda && r.aluno?.localidadeId === p.localidadeId && !temEmb(r, "IDA"));
+      const esperados = reservasConf.filter((r: DB) => r.vaiIda && r.aluno?.localidadeId === p.localidadeId);
+      totalEsperados = esperados.length;
+      faltantes = esperados.filter((r: DB) => !temEmb(r, "IDA"));
     } else if (p.sentido === "VOLTA" && p.faculdade) {
-      faltantes = reservasConf.filter((r: DB) => r.vaiVolta && r.aluno?.faculdade === p.faculdade && temEmb(r, "IDA") && !temEmb(r, "VOLTA"));
+      const esperados = reservasConf.filter((r: DB) => r.vaiVolta && r.aluno?.faculdade === p.faculdade && temEmb(r, "IDA"));
+      totalEsperados = esperados.length;
+      faltantes = esperados.filter((r: DB) => !temEmb(r, "VOLTA"));
     }
-    const exibirQuem = destino.transparenciaEmbarque ?? "CONTAGEM_NOMES";
     return {
       id: p.id, sentido: p.sentido, ordem: p.ordem, nome: p.nome,
       lat: p.lat ?? null, lng: p.lng ?? null, raioMetros: p.raioMetros ?? 200,
-      faltamQtd: exibirQuem === "NAO_EXIBIR" ? 0 : faltantes.length,
-      faltam: exibirQuem === "QTD_NOME" ? faltantes.map((r: DB) => ({ nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null })) : [],
+      totalEsperados,
+      faltamQtd: faltantes.length,
+      faltam: faltantes.map((r: DB) => ({ nome: r.aluno?.nome ?? "", fotoUrl: r.aluno?.fotoUrl ?? null })),
     };
   });
 

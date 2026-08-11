@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bus, Check, LogOut, Megaphone, ScanLine, MapPin, Users, Navigation } from "lucide-react";
+import { Bus, Check, LogOut, Megaphone, ScanLine, MapPin, Users, Navigation, Info } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import ChamadaAoVivo, { type PontoChamada } from "../portal/ChamadaAoVivo";
@@ -13,7 +13,7 @@ interface Item {
 }
 interface Ponto { ponto: string; itens: Item[] }
 interface Falta { nome: string; fotoUrl: string | null }
-interface PontoItin { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; faltamQtd: number; faltam: Falta[]; lat: number | null; lng: number | null; raioMetros: number }
+interface PontoItin { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; totalEsperados?: number; faltamQtd: number; faltam: Falta[]; lat: number | null; lng: number | null; raioMetros: number }
 interface Estado {
   viagem: { id: string; horario: string; pontoAtualId: string | null; sentidoAtual: string | null } | null;
   rota?: string; pontos: Ponto[]; nfcAtivo?: boolean; itinerario?: PontoItin[]; transparenciaEmbarque?: string;
@@ -239,11 +239,19 @@ export default function MonitorScreen() {
                 </div>
                 {pontoAtual ? (
                   <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">
-                    {pontoAtual.faltamQtd === 0 ? (
-                      <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700"><Check className="h-4 w-4" /> Todos embarcaram em {pontoAtual.nome} — pode seguir.</p>
+                    {(pontoAtual.totalEsperados ?? 0) === 0 ? (
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-slate-600">
+                        <Info className="h-4 w-4 text-slate-400 shrink-0" /> Sem embarques previstos em {pontoAtual.nome}.
+                      </p>
+                    ) : pontoAtual.faltamQtd === 0 ? (
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700">
+                        <Check className="h-4 w-4 shrink-0" /> Todos os {pontoAtual.totalEsperados} passageiros embarcaram em {pontoAtual.nome} — liberado.
+                      </p>
                     ) : (
                       <>
-                        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-700"><Users className="h-4 w-4 text-amber-600" /> Faltam {pontoAtual.faltamQtd} em {pontoAtual.nome}</p>
+                        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+                          <Users className="h-4 w-4 text-amber-600 shrink-0" /> Embarque em andamento ({pontoAtual.totalEsperados! - pontoAtual.faltamQtd}/{pontoAtual.totalEsperados} em {pontoAtual.nome})
+                        </p>
                         {exibir !== "QTD" && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {pontoAtual.faltam.map((f, k) => (
