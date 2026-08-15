@@ -121,10 +121,17 @@ export default function Frota() {
       if (perfil?.secretariaId) q = q.eq("secretariaId", perfil.secretariaId);
       const { data, error } = await q;
       if (error || !data) {
-        // Fallback: se o join aninhado de OnibusLocalidade falhar por RLS, busca apenas os ônibus
+        // Fallback 1: se falhar, busca sem o join de OnibusLocalidade
         let q2 = supabase.from("Onibus").select("id,nome,placa,capacidade,motorista,ativo,destinoId,transparenciaEmbarque,destino:Destino(nome)").order("nome");
         if (perfil?.secretariaId) q2 = q2.eq("secretariaId", perfil.secretariaId);
-        const { data: data2 } = await q2;
+        const { data: data2, error: error2 } = await q2;
+        if (error2 || !data2) {
+          // Fallback 2 (Segurança de esquema): se a coluna transparenciaEmbarque ainda não existir no banco, busca os dados base da frota
+          let q3 = supabase.from("Onibus").select("id,nome,placa,capacidade,motorista,ativo,destinoId,destino:Destino(nome)").order("nome");
+          if (perfil?.secretariaId) q3 = q3.eq("secretariaId", perfil.secretariaId);
+          const { data: data3 } = await q3;
+          return (data3 as Onibus[]) ?? [];
+        }
         return (data2 as Onibus[]) ?? [];
       }
       return (data as Onibus[]) ?? [];

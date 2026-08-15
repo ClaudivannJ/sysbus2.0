@@ -26,7 +26,13 @@ export default function Rotas() {
     queryFn: async () => {
       let q = supabase.from("Destino").select("id,nome,horarioSaida,enqueteAbre,enqueteFecha,intervaloChamadaS,diasSemana,secretariaId,transparenciaEmbarque").order("nome");
       if (perfil?.secretariaId) q = q.eq("secretariaId", perfil.secretariaId);
-      const { data } = await q;
+      const { data, error } = await q;
+      if (error || !data) {
+        let q2 = supabase.from("Destino").select("id,nome,horarioSaida,enqueteAbre,enqueteFecha,intervaloChamadaS,diasSemana,secretariaId").order("nome");
+        if (perfil?.secretariaId) q2 = q2.eq("secretariaId", perfil.secretariaId);
+        const { data: data2 } = await q2;
+        return (data2 as Rota[]) ?? [];
+      }
       return (data as Rota[]) ?? [];
     },
   });
