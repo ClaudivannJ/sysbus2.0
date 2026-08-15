@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarCheck, Check, X, Bus, WifiOff, CloudUpload } from "lucide-react";
+import { CalendarCheck, Check, X, WifiOff, CloudUpload } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { EstadoEnquete } from "./fila";
 import FilaAoVivo from "./FilaAoVivo";
 import ChamadaAoVivo, { type PontoChamada } from "./ChamadaAoVivo";
 import AvisoSemViagem, { dataExtenso } from "../components/AvisoSemViagem";
 import { useOnline, cacheSalvar, cacheLer, salvarPendente, lerPendente, limparPendente, type AcaoEnquete } from "../lib/offline";
+import StatusEmbarque from "../components/StatusEmbarque";
 
 type Intencao = "IDA_VOLTA" | "SO_IDA" | "SO_VOLTA";
 type PosicaoOnibus = { nome: string; sentido: "IDA" | "VOLTA"; faltamQtd: number; meuPonto: boolean };
@@ -411,23 +412,7 @@ export default function Reserva() {
         </div>
       )}
 
-      {chamada?.posicaoOnibus && (
-        <div className={`flex items-center gap-3 rounded-2xl p-4 ring-1 ${chamada.posicaoOnibus.meuPonto ? "bg-brand-50 ring-brand-200" : "bg-white ring-slate-200"}`}>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700"><Bus className="h-5 w-5" /></div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-800">
-              Ônibus em <span className="text-brand-700">{chamada.posicaoOnibus.nome}</span>
-              <span className="ml-1 text-xs font-normal text-slate-400">· {chamada.posicaoOnibus.sentido === "IDA" ? "ida" : "volta"}</span>
-            </p>
-            <p className="text-xs text-slate-500">
-              {chamada.posicaoOnibus.faltamQtd === 0
-                ? "Todos embarcaram neste ponto."
-                : `Faltam ${chamada.posicaoOnibus.faltamQtd} para o ônibus seguir.`}
-              {chamada.posicaoOnibus.meuPonto && <strong className="text-brand-700"> É o seu ponto agora.</strong>}
-            </p>
-          </div>
-        </div>
-      )}
+      <StatusEmbarque destinoId={estado.viagem?.destinoId} />
 
       {chamada && chamada.pontos.length > 0 && (
         <div>

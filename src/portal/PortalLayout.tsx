@@ -1,6 +1,6 @@
 import { NavLink, Outlet, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, CalendarCheck, FileText, User, LogOut, ScanLine, WifiOff } from "lucide-react";
+import { CreditCard, CalendarCheck, FileText, User, LogOut, ScanLine, WifiOff, Radio } from "lucide-react";
 import { useAuth } from "../auth/AuthProvider";
 import { useOnline } from "../lib/offline";
 import { supabase } from "../lib/supabase";
@@ -8,6 +8,7 @@ import { supabase } from "../lib/supabase";
 const TABS = [
   { to: "/portal", end: true, icon: CreditCard, label: "Carteirinha" },
   { to: "/portal/reserva", end: false, icon: CalendarCheck, label: "Reserva" },
+  { to: "/portal/acompanhar", end: false, icon: Radio, label: "Ao Vivo" },
   { to: "/portal/documentos", end: false, icon: FileText, label: "Documentos" },
   { to: "/portal/perfil", end: false, icon: User, label: "Perfil" },
 ];
