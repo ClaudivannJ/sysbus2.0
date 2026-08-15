@@ -1,29 +1,27 @@
 -- mt_18_transparencia_embarque.sql
--- Renomeia exibirQuemFalta -> transparenciaEmbarque em Destino
--- e adiciona override por ônibus em Onibus.
+-- Atualização segura e idempotente da transparência de embarque.
 
--- 1. Renomear coluna em Destino
-alter table "Destino"
-  rename column "exibirQuemFalta" to "transparenciaEmbarque";
+-- 1. Atualização segura de Destino
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns 
+    where table_name='Destino' and column_name='exibirQuemFalta'
+  ) then
+    alter table "Destino" rename column "exibirQuemFalta" to "transparenciaEmbarque";
+  end if;
 
--- 2. Adicionar coluna de override em Onibus
---    NULL = herda da rota, caso contrário sobrescreve
-alter table "Onibus"
-  add column if not exists "transparenciaEmbarque" text default null;
+  if not exists (
+    select 1 from information_schema.columns 
+    where table_name='Destino' and column_name='transparenciaEmbarque'
+  ) then
+    alter table "Destino" add column "transparenciaEmbarque" text default 'CONTAGEM_NOMES';
+  end if;
+end $$;
 
--- Valores válidos para ambas as colunas:
--- PRIVADO       → passageiros veem apenas que o ônibus está aguardando
--- CONTAGEM      → "Aguardando 5 passageiros"
--- CONTAGEM_NOMES → "Aguardando: João, Maria +3"
--- PERFIL_COMPLETO → cards com nome + foto
+-- 2. Coluna em Onibus
+alter table "Onibus" add column if not exists "transparenciaEmbarque" text default null;
 
--- 3. Garantir valor padrão não-nulo em Destino (era QTD_NOME)
-alter table "Destino"
-  alter column "transparenciaEmbarque" set default 'CONTAGEM_NOMES';
-
-update "Destino"
-  set "transparenciaEmbarque" = 'CONTAGEM_NOMES'
-  where "transparenciaEmbarque" is null;
-
-alter table "Destino"
-  alter column "transparenciaEmbarque" set not null;
+-- 3. Garantir padrão em Destino
+alter table "Destino" alter column "transparenciaEmbarque" set default 'CONTAGEM_NOMES';
+update "Destino" set "transparenciaEmbarque" = 'CONTAGEM_NOMES' where "transparenciaEmbarque" is null;
