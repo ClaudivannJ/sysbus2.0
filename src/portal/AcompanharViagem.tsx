@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Bus, CheckCircle2, Clock, MapPin, Navigation, UserCheck, Users, Info, Edit3, ExternalLink, AlertTriangle, X } from "lucide-react";
@@ -6,6 +6,8 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import { useAluno } from "./useAluno";
 import { useCanal } from "./useCanal";
+
+const MiniMapaPonto = lazy(() => import("../components/MiniMapaPonto"));
 
 interface PassageiroFeed {
   reservaId: string;
@@ -27,6 +29,8 @@ interface PontoTimeline {
   atual: boolean;
   descricaoReferencia?: string | null;
   avisoTemporario?: string | null;
+  lat?: number | null;
+  lng?: number | null;
   passageiros: PassageiroFeed[];
 }
 
@@ -174,7 +178,7 @@ export default function AcompanharViagem() {
       // Pontos do itinerário (com referências)
       const { data: pontosRaw } = await supabase
         .from("PontoRota")
-        .select("id, sentido, ordem, nome, localidadeId, faculdade, descricaoReferencia, avisoTemporario")
+        .select("id, sentido, ordem, nome, localidadeId, faculdade, descricaoReferencia, avisoTemporario, lat, lng")
         .eq("destinoId", destinoId!)
         .order("ordem");
 
@@ -234,6 +238,8 @@ export default function AcompanharViagem() {
           atual: p.id === vObj.pontoAtualId,
           descricaoReferencia: p.descricaoReferencia ?? null,
           avisoTemporario: p.avisoTemporario ?? null,
+          lat: p.lat ?? null,
+          lng: p.lng ?? null,
           passageiros,
         };
       });
@@ -380,14 +386,28 @@ export default function AcompanharViagem() {
             </div>
           )}
 
-          <a
-            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((pontoDoAluno?.nome ?? aluno.faculdade) + " ponto de onibus")}`}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-white py-2 text-xs font-bold text-amber-900 shadow-xs hover:bg-amber-50"
-          >
-            <ExternalLink className="h-3.5 w-3.5" /> Ver Localização no Google Maps
-          </a>
+          {/* Mini-mapa embarcado quando coordenadas estão cadastradas */}
+          {pontoDoAluno?.lat && pontoDoAluno?.lng ? (
+            <div className="mt-3">
+              <Suspense fallback={<div className="h-40 w-full animate-pulse rounded-xl bg-slate-200" />}>
+                <MiniMapaPonto
+                  lat={pontoDoAluno.lat}
+                  lng={pontoDoAluno.lng}
+                  label={pontoDoAluno.nome}
+                  altura={165}
+                />
+              </Suspense>
+            </div>
+          ) : (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((pontoDoAluno?.nome ?? aluno.faculdade) + " ponto de onibus")}`}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-white py-2 text-xs font-bold text-amber-900 shadow-xs hover:bg-amber-50"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> Ver no Google Maps (Adicione as coordenadas para o mini-mapa)
+            </a>
+          )}
         </div>
       )}
 
