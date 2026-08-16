@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users, UserPlus, Search, Check, Printer, X, ShieldCheck, ScanLine } from "lucide-react";
+import { Users, UserPlus, Search, Check, Printer, X, ShieldCheck, ScanLine, Star } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { montarCarteirinha, type AlunoParaCartao } from "../lib/carteirinha-render";
 import { formatarValidade } from "../lib/carteirinha";
@@ -130,7 +130,8 @@ const one = (x: unknown) => (Array.isArray(x) ? (x[0] ?? null) : (x ?? null));
 interface AlunoDados {
   id: string; nome: string; cpf: string; curso: string | null; faculdade: string | null;
   matricula: string | null; destinoId: string | null; dataNascimento: string | null;
-  fotoUrl: string | null; status: string; usuario: { email: string; permissoes: string[] | null } | null;
+  fotoUrl: string | null; status: string; isRepresentante: boolean | null;
+  usuario: { email: string; permissoes: string[] | null } | null;
 }
 
 function AlunoDetalhe({ aluno, aoFechar, aoMudar }: { aluno: AlunoRow; aoFechar: () => void; aoMudar: () => void }) {
@@ -147,7 +148,7 @@ function AlunoDetalhe({ aluno, aoFechar, aoMudar }: { aluno: AlunoRow; aoFechar:
     queryKey: ["aluno-full", aluno.id],
     queryFn: async (): Promise<AlunoDados | null> => {
       const { data } = await supabase.from("Aluno")
-        .select("id,nome,cpf,curso,faculdade,matricula,destinoId,dataNascimento,fotoUrl,status,usuario:Usuario(email,permissoes)")
+        .select("id,nome,cpf,curso,faculdade,matricula,destinoId,dataNascimento,fotoUrl,status,isRepresentante,usuario:Usuario(email,permissoes)")
         .eq("id", aluno.id).maybeSingle();
       if (!data) return null;
       const d = data as Record<string, unknown>;
@@ -177,6 +178,14 @@ function AlunoDetalhe({ aluno, aoFechar, aoMudar }: { aluno: AlunoRow; aoFechar:
   const validadeMs = cartao?.dados.validade ? new Date(cartao.dados.validade).getTime() : null;
   const jaAutorizado = validadeMs !== null && validadeMs >= Date.now();
   const ehMonitor = (dados?.usuario?.permissoes ?? []).includes("ESCANEAR_EMBARQUE");
+  const ehRepresentante = Boolean(dados?.isRepresentante);
+
+  async function toggleRepresentante() {
+    setOcupado(true);
+    await supabase.from("Aluno").update({ isRepresentante: !ehRepresentante }).eq("id", aluno.id);
+    setOcupado(false);
+    aoMudar();
+  }
 
   async function acao(action: string, body: Record<string, unknown> = {}) {
     setOcupado(true);
@@ -295,6 +304,28 @@ function AlunoDetalhe({ aluno, aoFechar, aoMudar }: { aluno: AlunoRow; aoFechar:
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${ehMonitor ? "bg-brand-700" : "bg-slate-300"}`}
               >
                 <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${ehMonitor ? "translate-x-5" : "translate-x-0.5"}`} />
+              </button>
+            </div>
+          )}
+
+          {/* Representante de Comissão */}
+          {dados && !desligado && (
+            <div className="mt-3 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+              <div className="flex items-center gap-2">
+                <Star className="h-4 w-4 text-amber-500" />
+                <div className="leading-tight">
+                  <p className="text-sm font-medium text-slate-700">Representante de Comissão</p>
+                  <p className="text-[11px] text-slate-500">Permite editar o ponto de referência e avisos da rota no app.</p>
+                </div>
+              </div>
+              <button
+                onClick={toggleRepresentante}
+                disabled={ocupado}
+                role="switch"
+                aria-checked={ehRepresentante}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${ehRepresentante ? "bg-amber-500" : "bg-slate-300"}`}
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${ehRepresentante ? "translate-x-5" : "translate-x-0.5"}`} />
               </button>
             </div>
           )}
