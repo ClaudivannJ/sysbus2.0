@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Bus, CheckCircle2, Clock, MapPin, Navigation, UserCheck, Users, Info } from "lucide-react";
+import { ArrowLeft, Bus, CheckCircle2, Clock, MapPin, Navigation, UserCheck, Users, Info, Edit3, ExternalLink, AlertTriangle, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import { useAluno } from "./useAluno";
@@ -25,6 +25,8 @@ interface PontoTimeline {
   totalEsperados: number;
   embarcados: number;
   atual: boolean;
+  descricaoReferencia?: string | null;
+  avisoTemporario?: string | null;
   passageiros: PassageiroFeed[];
 }
 
@@ -48,11 +50,82 @@ function iniciais(nome: string) {
   return nome.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 }
 
+function ModalEditarReferencia({
+  ponto,
+  onFechar,
+}: {
+  ponto: PontoTimeline;
+  onFechar: () => void;
+}) {
+  const qc = useQueryClient();
+  const [ref, setRef] = useState(ponto.descricaoReferencia ?? "");
+  const [aviso, setAviso] = useState(ponto.avisoTemporario ?? "");
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setSalvando(true);
+    try {
+      await supabase
+        .from("PontoRota")
+        .update({
+          descricaoReferencia: ref.trim() || null,
+          avisoTemporario: aviso.trim() || null,
+        })
+        .eq("id", ponto.id);
+      qc.invalidateQueries({ queryKey: ["acompanhar-viagem-ao-vivo"] });
+      onFechar();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h3 className="text-base font-bold text-slate-800">Ponto de Referência — {ponto.nome}</h3>
+          <button onClick={onFechar} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+        </div>
+        <form onSubmit={salvar} className="mt-4 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Ponto de Referência Visual</label>
+            <input
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              placeholder="Ex: Sinal Vermelho em frente ao Posto Ipiranga"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-600"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">Ajuda os alunos a encontrarem o local exato onde aguardar o ônibus.</p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Aviso Temporário de Hoje (Opcional)</label>
+            <input
+              value={aviso}
+              onChange={(e) => setAviso(e.target.value)}
+              placeholder="Ex: Devido à chuva, embarque na rua de trás"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-600"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">Aparece em destaque amarelo para os alunos da faculdade hoje.</p>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onFechar} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700">Cancelar</button>
+            <button type="submit" disabled={salvando} className="rounded-lg bg-brand-700 px-4 py-2 text-xs font-semibold text-white hover:bg-brand-800 disabled:opacity-60">
+              {salvando ? "Salvando…" : "Salvar Ponto"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function AcompanharViagem() {
-  const { perfil } = useAuth();
+  const { perfil, pode } = useAuth();
   const { data: aluno } = useAluno(perfil?.id);
   const destinoId = aluno?.destino?.id ?? null;
   const [agora, setAgora] = useState(() => Date.now());
+  const [pontoEdicao, setPontoEdicao] = useState<PontoTimeline | null>(null);
 
   // 1. Invalida cache instantaneamente quando chega evento Realtime no canal do monitor
   const realtimeAtivo = useCanal(`monitor-viagem:${destinoId}`, () => {
@@ -98,10 +171,10 @@ export default function AcompanharViagem() {
       const vObj = v as any;
       const sentido = (vObj.sentidoAtual as "IDA" | "VOLTA") ?? "IDA";
 
-      // Pontos do itinerário
+      // Pontos do itinerário (com referências)
       const { data: pontosRaw } = await supabase
         .from("PontoRota")
-        .select("id, sentido, ordem, nome, localidadeId, faculdade")
+        .select("id, sentido, ordem, nome, localidadeId, faculdade, descricaoReferencia, avisoTemporario")
         .eq("destinoId", destinoId!)
         .order("ordem");
 
@@ -159,6 +232,8 @@ export default function AcompanharViagem() {
           totalEsperados: passageiros.length,
           embarcados,
           atual: p.id === vObj.pontoAtualId,
+          descricaoReferencia: p.descricaoReferencia ?? null,
+          avisoTemporario: p.avisoTemporario ?? null,
           passageiros,
         };
       });
@@ -208,8 +283,20 @@ export default function AcompanharViagem() {
     );
   }
 
+  // Ponto específico da faculdade do aluno
+  const pontoDoAluno = aluno?.faculdade
+    ? estado.pontos.find((p) => p.nome.toLowerCase().includes(aluno.faculdade!.toLowerCase()) || aluno.faculdade!.toLowerCase().includes(p.nome.toLowerCase()))
+    : null;
+
+  const podeEditarPonto = Boolean(aluno?.isRepresentante) || pode("GERENCIAR_ROTAS");
+
   return (
     <div className="mx-auto max-w-lg space-y-4 pb-20">
+      {/* Modal de Edição */}
+      {pontoEdicao && (
+        <ModalEditarReferencia ponto={pontoEdicao} onFechar={() => setPontoEdicao(null)} />
+      )}
+
       {/* Voltar */}
       <div className="flex items-center justify-between">
         <Link to="/portal" className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-700 hover:text-brand-800">
@@ -260,6 +347,50 @@ export default function AcompanharViagem() {
         )}
       </div>
 
+      {/* Card de Orientação do Ponto Personalizado da Faculdade do Aluno */}
+      {aluno?.faculdade && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-amber-800">
+              <MapPin className="h-3.5 w-3.5 text-amber-600" /> Seu Ponto de Embarque ({aluno.faculdade})
+            </span>
+            {pontoDoAluno && podeEditarPonto && (
+              <button
+                onClick={() => setPontoEdicao(pontoDoAluno)}
+                className="inline-flex items-center gap-1 text-xs font-bold text-brand-700 hover:underline"
+              >
+                <Edit3 className="h-3.5 w-3.5" /> Editar Ponto
+              </button>
+            )}
+          </div>
+
+          <div className="mt-2 leading-tight">
+            <p className="text-sm font-extrabold text-slate-900">
+              {pontoDoAluno ? pontoDoAluno.nome : `Ponto da ${aluno.faculdade}`}
+            </p>
+            <p className="mt-1 text-xs text-slate-700 font-medium">
+              📍 <strong>Referência Visual:</strong> {pontoDoAluno?.descricaoReferencia || "Sinal / Ponto principal em frente à faculdade"}
+            </p>
+          </div>
+
+          {pontoDoAluno?.avisoTemporario && (
+            <div className="mt-2.5 flex items-start gap-1.5 rounded-lg bg-amber-100/80 p-2 text-xs font-semibold text-amber-900">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 mt-0.5" />
+              <span>Aviso de Hoje: {pontoDoAluno.avisoTemporario}</span>
+            </div>
+          )}
+
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((pontoDoAluno?.nome ?? aluno.faculdade) + " ponto de onibus")}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-white py-2 text-xs font-bold text-amber-900 shadow-xs hover:bg-amber-50"
+          >
+            <ExternalLink className="h-3.5 w-3.5" /> Ver Localização no Google Maps
+          </a>
+        </div>
+      )}
+
       {/* Linha do Tempo dos Pontos (Itinerário Stepper) */}
       <div className="space-y-3">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 px-1">Percurso & Embarques em Tempo Real</h3>
@@ -286,22 +417,37 @@ export default function AcompanharViagem() {
                         ? "Sem embarques previstos neste ponto"
                         : `${ponto.embarcados} de ${ponto.totalEsperados} embarcados`}
                     </p>
+                    {ponto.descricaoReferencia && (
+                      <p className="text-[11px] text-slate-500 mt-0.5">📍 Ref: {ponto.descricaoReferencia}</p>
+                    )}
                   </div>
                 </div>
 
-                {semPassageiros ? (
-                  <span className="flex items-center gap-1 text-xs text-slate-400 font-medium">
-                    <Info className="h-4 w-4" /> Sem paradas
-                  </span>
-                ) : concluido ? (
-                  <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full ring-1 ring-emerald-200">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Liberado
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full ring-1 ring-amber-200">
-                    <Users className="h-3.5 w-3.5" /> Faltam {ponto.totalEsperados - ponto.embarcados}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {podeEditarPonto && (
+                    <button
+                      onClick={() => setPontoEdicao(ponto)}
+                      className="text-slate-400 hover:text-brand-700"
+                      title="Editar referência do ponto"
+                    >
+                      <Edit3 className="h-4 w-4" />
+                    </button>
+                  )}
+
+                  {semPassageiros ? (
+                    <span className="flex items-center gap-1 text-xs text-slate-400 font-medium">
+                      <Info className="h-4 w-4" /> Sem paradas
+                    </span>
+                  ) : concluido ? (
+                    <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full ring-1 ring-emerald-200">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Liberado
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full ring-1 ring-amber-200">
+                      <Users className="h-3.5 w-3.5" /> Faltam {ponto.totalEsperados - ponto.embarcados}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Feed de Alunos (Muda de Amarelo para VERDE instantaneamente via Realtime) */}

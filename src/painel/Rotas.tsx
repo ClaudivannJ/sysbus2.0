@@ -275,7 +275,7 @@ function ItinerarioGate(props: { destinoId: string; secretariaId: string | null 
   return <Itinerario {...props} />;
 }
 
-interface Ponto { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; localidadeId: string | null; faculdade: string | null; lat: number | null; lng: number | null; raioMetros: number }
+interface Ponto { id: string; sentido: "IDA" | "VOLTA"; ordem: number; nome: string; localidadeId: string | null; faculdade: string | null; lat: number | null; lng: number | null; raioMetros: number; descricaoReferencia?: string | null }
 interface Localidade { id: string; nome: string }
 
 
@@ -290,7 +290,7 @@ function Itinerario({ destinoId, secretariaId }: { destinoId: string; secretaria
     queryKey: ["pontos-rota", destinoId],
     enabled: aberto,
     queryFn: async () => {
-      const { data } = await supabase.from("PontoRota").select("id,sentido,ordem,nome,localidadeId,faculdade,lat,lng,\"raioMetros\"").eq("destinoId", destinoId).order("ordem");
+      const { data } = await supabase.from("PontoRota").select("id, sentido, ordem, nome, localidadeId, faculdade, lat, lng, raioMetros, descricaoReferencia").eq("destinoId", destinoId).order("ordem");
       return (data as Ponto[]) ?? [];
     },
   });
@@ -373,15 +373,22 @@ function Itinerario({ destinoId, secretariaId }: { destinoId: string; secretaria
                   const lat = f.get("lat") ? Number(f.get("lat")) : null;
                   const lng = f.get("lng") ? Number(f.get("lng")) : null;
                   const raio = f.get("raioMetros") ? Number(f.get("raioMetros")) : 200;
+                  const ref = f.get("ref") ? (f.get("ref") as string).trim() : null;
                   salvarCoords(p.id, lat, lng, raio);
+                  supabase.from("PontoRota").update({ descricaoReferencia: ref }).eq("id", p.id).then(() => recarregar());
                 }}
                 className="mt-2 grid grid-cols-3 gap-2 border-t border-slate-200 pt-2"
               >
+                <div className="col-span-3">
+                  <label className="text-xs font-semibold text-slate-600">Ponto de Referência Visual (ex: Sinal Vermelho em frente ao Posto)
+                    <input name="ref" defaultValue={p.descricaoReferencia ?? ""} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" placeholder="Sinal Vermelho em frente à AESA / Posto Ipiranga" />
+                  </label>
+                </div>
                 <label className="text-xs text-slate-500">Lat <input name="lat" type="number" step="any" defaultValue={p.lat ?? ""} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" placeholder="-8.123" /></label>
                 <label className="text-xs text-slate-500">Lng <input name="lng" type="number" step="any" defaultValue={p.lng ?? ""} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" placeholder="-37.123" /></label>
                 <label className="text-xs text-slate-500">Raio (m) <input name="raioMetros" type="number" min={10} defaultValue={p.raioMetros ?? 200} className="w-full rounded border border-slate-300 px-2 py-1 text-sm mt-1" /></label>
                 <div className="col-span-3 flex justify-end">
-                  <button type="submit" className="rounded bg-brand-700 px-2 py-1 text-xs text-white hover:bg-brand-800">Salvar GPS</button>
+                  <button type="submit" className="rounded bg-brand-700 px-3 py-1 text-xs font-semibold text-white hover:bg-brand-800">Salvar Referência & GPS</button>
                 </div>
               </form>
             )}

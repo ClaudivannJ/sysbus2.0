@@ -7,6 +7,7 @@ import type { SituacaoAutorizacao } from "../lib/autorizacao";
 export interface AlunoPortal extends AlunoParaCartao {
   renovacoes: { status: "PENDENTE" | "APROVADA" | "REJEITADA" }[];
   destino: { id: string; modelo: unknown } | null;
+  isRepresentante?: boolean;
 }
 
 /** Carrega os dados do próprio aluno logado (carteirinha + template da rota + renovações).
@@ -22,7 +23,7 @@ export function useAluno(usuarioId: string | undefined) {
       const { data, error } = await supabase
         .from("Aluno")
         .select(
-          `nome, matricula, curso, fotoUrl, faculdade,
+          `nome, matricula, curso, fotoUrl, faculdade, isRepresentante,
            destino:Destino ( id, modelo:ModeloCarteirinha ( campos, largura, altura, arteFrenteUrl, arteVersoUrl ) ),
            carteirinha:Carteirinha ( qrToken, validade ),
            renovacoes:Renovacao ( status )`,
