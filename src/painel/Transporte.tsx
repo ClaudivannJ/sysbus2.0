@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Radio, UserPlus, Search, Megaphone, Bus } from "lucide-react";
+import { Radio, UserPlus, Search, Megaphone, Bus, Sparkles } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import FilaAoVivo from "../portal/FilaAoVivo";
 import ChamadaAoVivo, { type PontoChamada } from "../portal/ChamadaAoVivo";
 import type { DadosFila } from "../portal/fila";
 import AvisoSemViagem, { type MotivoSemViagem } from "../components/AvisoSemViagem";
+import SimuladorViagem from "./SimuladorViagem";
 
 interface Rota { id: string; nome: string }
 interface AlunoLite { id: string; nome: string; cpf: string }
@@ -22,6 +23,7 @@ export default function Transporte() {
   const [rotaId, setRotaId] = useState("");
   const [busca, setBusca] = useState("");
   const [add, setAdd] = useState(false);
+  const [simular, setSimular] = useState(false);
 
   const { data: rotas } = useQuery({
     queryKey: ["transp-rotas", perfil?.secretariaId],
@@ -84,6 +86,13 @@ export default function Transporte() {
           <select value={rotaId} onChange={(e) => setRotaId(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
             {(rotas ?? []).map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}
           </select>
+          <button
+            onClick={() => setSimular(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-800 hover:bg-brand-100 shadow-xs"
+            title="Simular percurso do ônibus e embarques em tempo real para testes"
+          >
+            <Sparkles className="h-4 w-4 text-brand-600" /> Simular Rota
+          </button>
           {estado?.aberta && (
             <button onClick={() => setAdd((v) => !v)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3 py-2 text-sm font-medium text-white hover:bg-brand-800">
               <UserPlus className="h-4 w-4" /> Inserir aluno
@@ -91,6 +100,17 @@ export default function Transporte() {
           )}
         </div>
       </div>
+
+      {simular && rotaId && (
+        <SimuladorViagem
+          destinoId={rotaId}
+          rotaNome={rotas?.find((r) => r.id === rotaId)?.nome ?? "Rota"}
+          onFechar={() => {
+            setSimular(false);
+            refetch();
+          }}
+        />
+      )}
 
       {add && (
         <div className="rounded-xl bg-white p-4 ring-1 ring-slate-200">
